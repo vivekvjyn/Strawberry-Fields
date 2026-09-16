@@ -1,27 +1,15 @@
-sample_rate: 16000
-segment_length: 4.0
-embedding_dim: 128
-n_mels: 128
-n_fft: 1024
-hop_length: 512
-f_min: 60
-f_max: 7000
+sample_rate: 22050
 
-batch_size: 32
-epochs: 50
-lr: 0.0003
-weight_decay: 0.00001
-temperature: 0.07
-num_workers: 4
+pitch:
+  fmin: 65.0
+  fmax: 1046.0
+  frame_length: 2048
+  hop_seconds: 0.025
+  ref_hz: 55.0
 
-checkpoint_dir: .cache/checkpoints
-dataset_dir: .cache/datasets/chad_hummings_subset
+search:
+  top_k: 10
 
-test:
-  corpus_dir: .cache/datasets/mtg-qbh/originals
-  queries_dir: .cache/datasets/mtg-qbh/audio
-  queries_csv: .cache/datasets/mtg-qbh/metadata/Queries.csv
-
-mlflow:
-  experiment_name: training-encoder
-  tracking_uri: sqlite:///.cache/mlflow.db
+saraga:
+  zenodo_url: "https://zenodo.org/record/4301737/files/saraga1.5_carnatic.zip?download=1"
+  cache_dir: .cache/datasets/saraga_carnatic

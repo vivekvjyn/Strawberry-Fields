@@ -1,23 +1,49 @@
 # Strawberry Fields
 
-Song retrieval using hummed query.
+Query-by-humming for Carnatic music.
 
-Hum a melody into your microphone and find the matching song using pitch detection (pYIN) + time-series matching (KNN with DTW).
+Hum a melody into your microphone and find the matching kriti using pitch detection
+(pYIN) + time-series matching (DTW), searched against pitch tracks and metadata from
+the [Saraga Carnatic dataset](https://mtg.github.io/saraga/).
 
 ## Architecture
 
 ```
-Query (hum) --> pYIN F0 --> MIDI notes --> KNN candidates --> DTW --> Result
+Query (hum) --> pYIN F0 --> cents contour --> DTW against every track --> Result
 ```
 
 ```
-MIDI files --> Monophonic extraction --> Pitch vectors --> PostgreSQL + KNN Model
+Saraga pitch tracks + metadata --> cents contours --> PostgreSQL
 ```
+
+Both the hummed query and the database tracks are converted to a pitch contour in
+cents (register-normalized, so absolute tonic/key doesn't matter). Both stages of
+signal processing are our own from-scratch implementations, not `librosa.pyin` /
+`librosa.sequence.dtw`, with their computational cores written in Cython and
+validated to match librosa's output bit-for-bit:
+
+- **pYIN** (`strawberryfields/pyin.py`): the YIN difference function and parabolic
+  interpolation (`yin_core.pyx`) and the probabilistic multi-threshold trough
+  weighting (`pyin_core.pyx`, exact Boltzmann/Beta-distribution priors) both run in
+  Cython; Viterbi/HMM decoding reuses `librosa.sequence.viterbi`. Validated against
+  `librosa.pyin` across randomized trials (noise, silence gaps, varied frequencies):
+  bit-identical voicing decisions, zero cents error, differences at machine-epsilon
+  only.
+- **DTW** (`strawberryfields/alignment.py` + `strawberryfields/dtw_core.pyx`):
+  subsequence and global DTW, Sakoe-Chiba band constraints, and path backtracking,
+  entirely in Cython. Validated against `librosa.sequence.dtw` across 90+ randomized
+  shapes/configurations, including the query-longer-than-reference transpose case.
+
+At search time the query contour is scored against every track's contour and the
+best matches are returned. No training step, no separate index to build.
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.10+
+- A C compiler (gcc/clang) to build the Cython extensions
 - PostgreSQL (local)
+- ffmpeg (for decoding browser-recorded audio)
+- jq, awk, curl, unzip (used by `scripts/setup.sh`)
 
 ## PostgreSQL Setup
 
@@ -37,9 +63,6 @@ brew install postgresql@16
 brew services start postgresql@16
 ```
 
-**Windows:**
-Download from https://www.postgresql.org/download/windows/
-
 ### Create Database
 
 ```bash
@@ -54,8 +77,12 @@ CREATE DATABASE strawberry_fields OWNER vivek;
 
 ### Initialize Schema
 
+`scripts/schema.sql` is applied directly via `psql` - no Python involved. Safe to
+re-run: it drops and recreates the tables. `./scripts/setup.sh` does this plus
+ingestion in one step (see below), or apply it on its own:
+
 ```bash
-python setup_db.py
+psql -h localhost -U vivek -d strawberry_fields -f scripts/schema.sql
 ```
 
 ## Environment Setup
@@ -67,7 +94,12 @@ pip install virtualenv
 virtualenv venv
 source venv/bin/activate
 pip install -r requirements.txt
+python setup.py build_ext --inplace
 ```
+
+The last step compiles `strawberryfields/dtw_core.pyx`, `strawberryfields/yin_core.pyx`,
+and `strawberryfields/pyin_core.pyx` into native extensions that `strawberryfields`
+imports directly. Re-run it any time you change any `.pyx` file.
 
 Create `.env` file:
 
@@ -82,58 +114,59 @@ SECRET_KEY=your_secret_key
 
 ## Adding Songs
 
-### Option 1: Individual MIDI files
+`./scripts/setup.sh` does everything: applies `scripts/schema.sql`, then downloads
+(or uses an already-extracted copy of) the Saraga Carnatic dataset and ingests its
+pitch tracks and metadata (raaga, taala, artists, work, concert). Download, zip
+extraction, JSON metadata parsing (`jq`), pitch contour resampling (`awk`), and
+inserts (`psql`) all run as plain shell - no Python involved:
 
 ```bash
-python features.py path/to/song.mid --title "Song Title" --composer "Composer Name"
+./scripts/setup.sh                      # download + extract from Zenodo (~several GB), then ingest everything
+./scripts/setup.sh --data-home /path    # ingest an already-extracted copy instead of downloading
+./scripts/setup.sh --limit 20           # ingest only the first N tracks, for dev/testing
 ```
-
-### Option 2: MAESTRO dataset (batch)
-
-1. Download MAESTRO v3.0.0 MIDI archive from https://magenta.tensorflow.org/datasets/maestro
-2. Extract it
-3. Run the ingestion script:
-
-```bash
-python ingest_maestro.py --dataset-dir /path/to/maestro --limit 100
-```
-
-Remove `--limit` to process all files.
-
-## Training
-
-After adding songs, train the KNN model:
-
-```bash
-python train.py
-```
-
-This computes pitch windows, assigns hash indices, and saves the model to `model/model.json`.
 
 ## Running
 
 ```bash
-python -m flask run
+python wsgi.py
 ```
 
-Open http://localhost:5000 in your browser.
+Open http://localhost:5000 in your browser. In production, use a WSGI server
+instead: `gunicorn wsgi:app`.
 
 ## Usage
 
-1. Click the record button or drag an audio file
+1. Click the record button (or upload an audio file)
 2. Hum a melody (15 second limit)
 3. Wait for results
-4. View the matched song with YouTube link
+4. View the matched kriti with raaga, taala, artists and concert
 
 ## File Overview
 
-| File | Description |
-|------|-------------|
-| `app.py` | Flask application, routes |
-| `utils.py` | Audio processing (pYIN, DTW, KNN) |
-| `features.py` | Add songs from MIDI files |
-| `train.py` | Train KNN model from database |
-| `ingest_maestro.py` | Batch ingest MAESTRO dataset |
-| `setup_db.py` | Initialize PostgreSQL schema |
-| `templates/` | HTML templates (Jinja2) |
-| `static/` | CSS, JS, images |
+```
+wsgi.py                                Entry point: from strawberryfields import create_app
+setup.py                               Builds the Cython extensions
+config.yaml                            Pitch/DTW/search parameters
+requirements.txt
+
+strawberryfields/                      Flask application package
+    __init__.py                        create_app() application factory
+    config.py                          Flask Config class + config.yaml loader
+    db.py                              PostgreSQL connection + track cache, loaded once at startup
+    views.py                           Blueprint: index, health, search routes
+    pitch.py                           Audio loading, cents conversion, contour normalization
+    pyin.py                            pYIN orchestration (framing, Viterbi decoding, f0 extraction)
+    yin_core.pyx                       Cython: YIN difference function, parabolic interpolation
+    pyin_core.pyx                      Cython: probabilistic trough/threshold weighting (Boltzmann/Beta priors)
+    alignment.py                       DTW-based melodic matching/search orchestration
+    dtw_core.pyx                       Cython: subsequence DTW, Sakoe-Chiba banding, backtracking
+    templates/index.html               Recording UI
+    static/css/style.css
+    static/js/app.js                   Mic recording (MediaRecorder) + results rendering
+
+scripts/
+    setup.sh                           Schema creation + Saraga Carnatic download/parse/ingest, in shell
+    schema.sql                         Database schema, applied directly via psql
+    pitch_contour.awk                  Pitch-to-cents conversion for the Saraga ingest, used by setup.sh
+```

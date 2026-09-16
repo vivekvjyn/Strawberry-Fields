@@ -1,0 +1,11 @@
+flask
+flask-cors
+gunicorn
+python-dotenv
+psycopg2-binary
+pyyaml
+numpy
+scipy
+librosa
+soundfile
+cython
