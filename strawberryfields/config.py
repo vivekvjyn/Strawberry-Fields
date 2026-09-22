@@ -29,9 +29,9 @@ class Config:
         "fmin": 65.0,
         "fmax": 1046.0,
         "frame_length": 2048,
-        "hop_seconds": 0.025,
+        "hop_seconds": 0.1,
         "ref_hz": 55.0,
-        "bin_cents": 25,
+        "bin_cents": 50,
         "range_cents": 2400,
         "sigma_cents": 200,
     }

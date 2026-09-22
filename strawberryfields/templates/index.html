@@ -1,21 +1,28 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<h1>Strawberry Fields</h1>
+<form id="search-form" action="{{ url_for('search.search') }}" method="post" enctype="multipart/form-data">
+  <input type="file" id="audio-input" name="audio" hidden>
 
-<div class="controls">
-  <button id="record-btn" aria-label="Record">
-    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M19 11a7 7 0 0 1-14 0M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-  </button>
-  <span id="timer">0s</span>
-</div>
+  <div class="controls">
+    <button id="record-btn" type="button" aria-label="Record">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M19 11a7 7 0 0 1-14 0M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <div id="wave" class="wave" hidden>
+      <svg viewBox="0 0 200 40" preserveAspectRatio="none" class="wave-svg">
+        <path class="wave-path wave-path-1" d="M0,14 C25,4 75,24 100,14 C125,4 175,24 200,14 C225,4 275,24 300,14 C325,4 375,24 400,14" />
+        <path class="wave-path wave-path-2" d="M0,20 C25,32 75,8 100,20 C125,32 175,8 200,20 C225,32 275,8 300,20 C325,32 375,8 400,20" />
+        <path class="wave-path wave-path-3" d="M0,26 C25,20 75,32 100,26 C125,20 175,32 200,26 C225,20 275,32 300,26 C325,20 375,32 400,26" />
+      </svg>
+    </div>
+    <div id="spinner" class="spinner" hidden></div>
+  </div>
 
-<p id="status"></p>
-
-<ul id="results"></ul>
+  <p id="status"></p>
+</form>
 {% endblock %}
 
 {% block scripts %}

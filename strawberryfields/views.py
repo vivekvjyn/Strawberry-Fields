@@ -4,7 +4,9 @@ from pathlib import Path
 import numpy as np
 import psycopg2
 import psycopg2.extras
-from flask import Blueprint, current_app, jsonify, render_template, request
+from flask import Blueprint, current_app, render_template, request
+from rich.console import Console
+from rich.table import Table
 
 from strawberryfields import utils
 
@@ -19,7 +21,7 @@ def index():
 @bp.route("/api/search", methods=["POST"])
 def search():
     if "audio" not in request.files:
-        return jsonify({"result": None})
+        return render_template("results.html", track=None)
 
     audio_file = request.files["audio"]
     suffix = Path(audio_file.filename or "query.webm").suffix or ".webm"
@@ -29,10 +31,10 @@ def search():
             audio_file.save(tmp.name)
             y, sr = utils.load_audio(tmp.name)
     except Exception:
-        return jsonify({"result": None})
+        return render_template("results.html", track=None)
 
     if len(y) < sr:
-        return jsonify({"result": None})
+        return render_template("results.html", track=None)
 
     query_image = utils.salience_from_audio(y, sr, current_app.config["PITCH"])
 
@@ -43,17 +45,28 @@ def search():
             cur.execute("SELECT id, pitch_cents FROM tracks")
             contours = ((track_id, np.asarray(pitch_cents, dtype=np.float64))
                         for track_id, pitch_cents in cur)
-            track_id = utils.best_match(query_image, contours, current_app.config["PITCH"])
+            best_id, _ = utils.best_match(query_image, contours, current_app.config["PITCH"])
 
         track = None
-        if track_id is not None:
+        if best_id is not None:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
-                    "SELECT title, artists, raag, taal, laya, form FROM tracks WHERE id = %s",
-                    (track_id,),
+                    "SELECT title, raag, taal, laya, form FROM tracks WHERE id = %s",
+                    (best_id,),
                 )
                 track = cur.fetchone()
+
+            if track:
+                table = Table(title="Best match")
+                table.add_column("Field", style="bold cyan")
+                table.add_column("Value")
+                table.add_row("Title", track["title"] or "")
+                table.add_row("Raag", track["raag"] or "")
+                table.add_row("Taal", track["taal"] or "")
+                table.add_row("Laya", track["laya"] or "")
+                table.add_row("Form", track["form"] or "")
+                Console().print(table)
     finally:
         conn.close()
 
-    return jsonify({"result": track})
+    return render_template("results.html", track=track)

@@ -7,6 +7,7 @@ from strawberryfields.config import Config
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
     CORS(app)
 

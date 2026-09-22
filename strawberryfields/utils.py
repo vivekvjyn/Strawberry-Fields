@@ -1,5 +1,6 @@
 import librosa
 import numpy as np
+from rich.progress import Progress
 
 from strawberryfields.dtw import dtw
 from strawberryfields.pyin import pyin
@@ -197,19 +198,27 @@ def best_match(query_image, tracks, pitch_config):
     :type tracks: collections.abc.Iterable[tuple[int, numpy.ndarray]]
     :param pitch_config: Settings with the keys ``bin_cents``, ``range_cents`` and ``sigma_cents``.
     :type pitch_config: dict
-    :return: The id of the best-matching track, or ``None`` if there are no tracks.
-    :rtype: int or None
+    :return: The id of the best-matching track (``None`` if there are no tracks), and the
+        10 lowest-cost ``(track_id, cost)`` pairs, best first.
+    :rtype: tuple[int or None, list[tuple[int, float]]]
     """
+    tracks = list(tracks)
     best_id, best_cost = None, np.inf
+    results = []
 
-    for track_id, contour in tracks:
-        if len(contour) == 0:
-            continue
-        track_image = rasterise(contour, pitch_config["bin_cents"], pitch_config["range_cents"],
-                                 pitch_config["sigma_cents"])
-        D = dtw(X=query_image, Y=track_image, metric="euclidean", subseq=True, backtrack=False)
-        cost = D[-1, :].min() / min(query_image.shape[1], track_image.shape[1])
-        if cost < best_cost:
-            best_id, best_cost = track_id, cost
+    with Progress() as progress:
+        task = progress.add_task("Searching tracks...", total=len(tracks))
+        for track_id, contour in tracks:
+            if len(contour) == 0:
+                progress.advance(task)
+                continue
+            track_image = rasterise(contour, pitch_config["bin_cents"], pitch_config["range_cents"],
+                                     pitch_config["sigma_cents"])
+            D = dtw(X=query_image, Y=track_image, metric="euclidean", subseq=True, backtrack=False)
+            cost = D[-1, :].min() / min(query_image.shape[1], track_image.shape[1])
+            results.append((track_id, cost))
+            if cost < best_cost:
+                best_id, best_cost = track_id, cost
+            progress.advance(task)
 
-    return best_id
+    return best_id, sorted(results, key=lambda r: r[1])[:10]
