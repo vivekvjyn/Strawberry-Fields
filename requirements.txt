@@ -8,4 +8,5 @@ scipy
 librosa
 soundfile
 cython
+setuptools
 rich
