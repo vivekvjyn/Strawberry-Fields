@@ -1,10 +1,50 @@
 import librosa
 import numpy as np
+import psycopg2
 from rich.progress import Progress
 
 from strawberryfields.dtw import dtw
 from strawberryfields.pyin import pyin
 from strawberryfields.salience import rasterise
+
+
+_track_cache = None
+_image_cache = {}
+
+
+def get_track_contours(database_url):
+    """Get every track's stored pitch contour, loading and caching them once.
+
+    The reference tracks don't change at runtime, so the first call downloads
+    every ``(id, pitch_cents)`` pair from the database and keeps it in memory;
+    later calls just return the cached list instead of re-querying.
+
+    :param database_url: Connection string for the app database.
+    :type database_url: str
+    :return: Track ids paired with their pitch contours in cents.
+    :rtype: list[tuple[int, numpy.ndarray]]
+    """
+    global _track_cache
+    if _track_cache is not None:
+        return _track_cache
+
+    attempts = 5
+    for attempt in range(1, attempts + 1):
+        conn = psycopg2.connect(database_url)
+        try:
+            with conn.cursor(name="contours") as cur:
+                cur.itersize = 50
+                cur.execute("SELECT id, pitch_cents FROM tracks")
+                rows = list(cur)
+            break
+        except psycopg2.OperationalError:
+            if attempt == attempts:
+                raise
+        finally:
+            conn.close()
+
+    _track_cache = [(track_id, np.asarray(contour, dtype=np.float64)) for track_id, contour in rows]
+    return _track_cache
 
 
 def load_audio(path):
@@ -188,9 +228,10 @@ def salience_from_audio(y, sr, pitch_config):
 def best_match(query_image, tracks, pitch_config):
     """Find the track whose pitch-salience image contains the best subsequence match.
 
-    Each track's stored cents contour is rasterised into a salience image and
-    compared against the query image with subsequence DTW; the cost is normalised
-    by the shorter length.
+    Each track's stored contour is rasterised into a salience image the first
+    time it's seen and memoised, so across searches every song is rasterised
+    exactly once; the image is compared against the query with subsequence DTW
+    and the cost normalised by the shorter length.
 
     :param query_image: Salience image of the query, as returned by :func:`salience_from_audio`.
     :type query_image: numpy.ndarray
@@ -212,8 +253,11 @@ def best_match(query_image, tracks, pitch_config):
             if len(contour) == 0:
                 progress.advance(task)
                 continue
-            track_image = rasterise(contour, pitch_config["bin_cents"], pitch_config["range_cents"],
-                                     pitch_config["sigma_cents"])
+            track_image = _image_cache.get(track_id)
+            if track_image is None:
+                track_image = rasterise(contour, pitch_config["bin_cents"], pitch_config["range_cents"],
+                                        pitch_config["sigma_cents"])
+                _image_cache[track_id] = track_image
             D = dtw(X=query_image, Y=track_image, metric="euclidean", subseq=True, backtrack=False)
             cost = D[-1, :].min() / min(query_image.shape[1], track_image.shape[1])
             results.append((track_id, cost))

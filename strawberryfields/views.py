@@ -1,7 +1,6 @@
 import tempfile
 from pathlib import Path
 
-import numpy as np
 import psycopg2
 import psycopg2.extras
 from flask import Blueprint, current_app, render_template, request
@@ -38,15 +37,11 @@ def search():
 
     query_image = utils.salience_from_audio(y, sr, current_app.config["PITCH"])
 
+    contours = utils.get_track_contours(current_app.config["DATABASE_URL"])
+    best_id, _ = utils.best_match(query_image, contours, current_app.config["PITCH"])
+
     conn = psycopg2.connect(current_app.config["DATABASE_URL"])
     try:
-        with conn.cursor(name="contours") as cur:
-            cur.itersize = 50
-            cur.execute("SELECT id, pitch_cents FROM tracks")
-            contours = ((track_id, np.asarray(pitch_cents, dtype=np.float64))
-                        for track_id, pitch_cents in cur)
-            best_id, _ = utils.best_match(query_image, contours, current_app.config["PITCH"])
-
         track = None
         if best_id is not None:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
