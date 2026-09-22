@@ -1,13 +1,8 @@
 import os
-from pathlib import Path
 
-import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
-
-PACKAGE_ROOT = Path(__file__).parent
-PROJECT_ROOT = PACKAGE_ROOT.parent
 
 
 def _database_url():
@@ -30,7 +25,13 @@ class Config:
     DATABASE_URL = _database_url()
     MAX_CONTENT_LENGTH = 25 * 1024 * 1024
 
-
-def load_pitch_config():
-    with open(PROJECT_ROOT / "config.yaml") as f:
-        return yaml.safe_load(f)
+    PITCH = {
+        "fmin": 65.0,
+        "fmax": 1046.0,
+        "frame_length": 2048,
+        "hop_seconds": 0.025,
+        "ref_hz": 55.0,
+        "bin_cents": 25,
+        "range_cents": 2400,
+        "sigma_cents": 200,
+    }

@@ -4,9 +4,9 @@ import numpy as np
 
 setup(
     ext_modules=cythonize([
-        "strawberryfields/dtw_core.pyx",
-        "strawberryfields/yin_core.pyx",
-        "strawberryfields/pyin_core.pyx",
+        "strawberryfields/dtw.pyx",
+        "strawberryfields/pyin.pyx",
+        "strawberryfields/salience.pyx",
     ]),
     include_dirs=[np.get_include()],
 )

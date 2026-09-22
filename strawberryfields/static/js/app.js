@@ -1,6 +1,4 @@
 const recordBtn = document.getElementById("record-btn");
-const micIcon = document.getElementById("mic-icon");
-const stopIcon = document.getElementById("stop-icon");
 const statusEl = document.getElementById("status");
 const timerEl = document.getElementById("timer");
 const resultsEl = document.getElementById("results");
@@ -29,8 +27,6 @@ recordBtn.addEventListener("click", async () => {
       stopTimer();
       recordBtn.classList.remove("recording");
       recordBtn.setAttribute("aria-label", "Record");
-      micIcon.hidden = false;
-      stopIcon.hidden = true;
       const blob = new Blob(chunks, { type: "audio/webm" });
       submitAudio(blob);
     };
@@ -38,8 +34,6 @@ recordBtn.addEventListener("click", async () => {
     mediaRecorder.start();
     recordBtn.classList.add("recording");
     recordBtn.setAttribute("aria-label", "Stop");
-    micIcon.hidden = true;
-    stopIcon.hidden = false;
     startTimer();
   } catch (err) {
     setStatus(`Microphone access denied: ${err.message}`);
@@ -83,23 +77,25 @@ async function submitAudio(blob) {
       return;
     }
 
-    renderResults(data.results);
-    setStatus(data.results.length ? "" : "No matches found");
+    renderResult(data.result);
   } catch (err) {
     setStatus(`Request failed: ${err.message}`);
   }
 }
 
-function renderResults(results) {
+function renderResult(track) {
   resultsEl.innerHTML = "";
-  for (const track of results) {
-    const li = document.createElement("li");
-    const meta = [track.raaga, track.taala, track.artists].filter(Boolean).join(" · ");
-    li.innerHTML = `
-      <span class="score">${track.score}</span>
-      <div class="title">${track.rank}. ${track.title}</div>
-      <div class="meta">${meta}</div>
-    `;
-    resultsEl.appendChild(li);
+  if (!track) {
+    setStatus("No match found");
+    return;
   }
+
+  setStatus("");
+  const meta = [track.raag, track.taal, track.artists].filter(Boolean).join(" · ");
+  const li = document.createElement("li");
+  li.innerHTML = `
+    <div class="title">${track.title}</div>
+    <div class="meta">${meta}</div>
+  `;
+  resultsEl.appendChild(li);
 }

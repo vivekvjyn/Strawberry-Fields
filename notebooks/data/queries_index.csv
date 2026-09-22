@@ -1,0 +1,87 @@
+query_id,song_id,title,original_artist,path
+q1,1118,Mother natures son,The Beatles,queries/q1.wav
+q3,1546,Stairway to heaven,Led Zeppelin,queries/q3.wav
+q4,1579,Strawberry fields forever,The Beatles,queries/q4.wav
+q5,1808,When I am sixty four,The Beatles,queries/q5.wav
+q6,2133,More than words,Extreme,queries/q6.wav
+q7,2179,The boxer,Simon and Garfunkel,queries/q7.wav
+q9,1224,Ob la di ob la da,The Beatles,queries/q9.wav
+q11,1747,Vivir asi es morir de amor,Camilo Sesto,queries/q11.wav
+q12,19,Across the universe,The Beatles,queries/q12.wav
+q13,2133,More than words,Extreme,queries/q13.wav
+q14,663,Hello goodbye,The Beatles,queries/q14.wav
+q16,937,Lestaca,Lluis Llach,queries/q16.wav
+q17,96,Cuando los angeles lloran,Mana,queries/q17.wav
+q19,2086,Cecilia,Simon and Garfunkel,queries/q19.wav
+q21,1224,Ob la di ob la da,The Beatles,queries/q21.wav
+q22,19,Across the universe,The Beatles,queries/q22.wav
+q23,2269,Octopuss garden,The Beatles,queries/q23.wav
+q25,542,Friday Im in love,The Cure,queries/q25.wav
+q26,708,Hey Jude,The Beatles,queries/q26.wav
+q27,789,In my life,The Beatles,queries/q27.wav
+q28,941,Let it be,The Beatles,queries/q28.wav
+q29,1194,Nothing else matters,Metallica,queries/q29.wav
+q30,1441,Seek and destroy,Metallica,queries/q30.wav
+q31,1564,Stand by me,Ben E King,queries/q31.wav
+q33,2031,My Sharona,The Knack,queries/q33.wav
+q35,2063,We will rock you,Queen,queries/q35.wav
+q36,1066,Mediterraneo,Joan Manuel Serrat,queries/q36.wav
+q37,1209,No woman no cry,Bob Marley,queries/q37.wav
+q38,1224,Ob la di ob la da,The Beatles,queries/q38.wav
+q39,1564,Stand by me,Ben E King,queries/q39.wav
+q40,1592,Yellow submarine,The Beatles,queries/q40.wav
+q41,1719,You have got a friend,Carole King,queries/q41.wav
+q43,1832,Wish you were here,Pink Floyd,queries/q43.wav
+q44,1835,What a wonderful world,Louis Armstrong,queries/q44.wav
+q45,2045,Over the rainbow,Judy Garland,queries/q45.wav
+q46,2056,Sweet home Alabama,Lynyrd Skynyrd,queries/q46.wav
+q47,1142,You make me feel like a natural woman,Aretha Franklin,queries/q47.wav
+q51,2045,Over the rainbow,Judy Garland,queries/q51.wav
+q52,2146,Proud Mary,Creedence Clearwater Revival,queries/q52.wav
+q54,1747,Vivir asi es morir de amor,Camilo Sesto,queries/q54.wav
+q55,2056,Sweet home Alabama,Lynyrd Skynyrd,queries/q55.wav
+q57,941,Let it be,The Beatles,queries/q57.wav
+q58,1237,One,U2,queries/q58.wav
+q59,1396,Roxanne,The Police,queries/q59.wav
+q60,1510,Smoke on the water,Deep Purple,queries/q60.wav
+q61,1849,Yesterday,The Beatles,queries/q61.wav
+q62,2015,White Christmas,Bing Crosby,queries/q62.wav
+q64,641,Happiness is a warm gun,The Beatles,queries/q64.wav
+q66,941,Let it be,The Beatles,queries/q66.wav
+q67,965,With a little help from my friends,The Beatles,queries/q67.wav
+q68,98,Angie,The Rolling Stones,queries/q68.wav
+q70,1209,No woman no cry,Bob Marley,queries/q70.wav
+q71,1224,Ob la di ob la da,The Beatles,queries/q71.wav
+q72,1564,Stand by me,Ben E King,queries/q72.wav
+q74,253,Cant buy me love,The Beatles,queries/q74.wav
+q75,479,Enjoy the silence,Depeche Mode,queries/q75.wav
+q76,646,A hard days night,The Beatles,queries/q76.wav
+q77,668,Help,The Beatles,queries/q77.wav
+q78,70,All my loving,The Beatles,queries/q78.wav
+q81,1142,You make me feel like a natural woman,Aretha Franklin,queries/q81.wav
+q82,1252,Only you,The Platters,queries/q82.wav
+q84,1719,You have got a friend,Carole King,queries/q84.wav
+q85,2045,Over the rainbow,Judy Garland,queries/q85.wav
+q86,2074,America,Simon and Garfunkel,queries/q86.wav
+q87,2115,I dont want to miss a thing,Aerosmith,queries/q87.wav
+q89,646,A hard days night,The Beatles,queries/q89.wav
+q91,1488,She said she said,The Beatles,queries/q91.wav
+q93,2086,Cecilia,Simon and Garfunkel,queries/q93.wav
+q94,2090,Cocaine,J J Cale,queries/q94.wav
+q97,768,Imagine,John Lennon,queries/q97.wav
+q98,1066,Mediterraneo,Joan Manuel Serrat,queries/q98.wav
+q99,1209,No woman no cry,Bob Marley,queries/q99.wav
+q100,1510,Smoke on the water,Deep Purple,queries/q100.wav
+q101,1546,Stairway to heaven,Led Zeppelin,queries/q101.wav
+q103,1835,What a wonderful world,Louis Armstrong,queries/q103.wav
+q104,2090,Cocaine,J J Cale,queries/q104.wav
+q105,2133,More than words,Extreme,queries/q105.wav
+q106,768,Imagine,John Lennon,queries/q106.wav
+q109,1185,No me importa nada,Luz Casal,queries/q109.wav
+q110,941,Let it be,The Beatles,queries/q110.wav
+q112,2026,Born to be wild,Steppenwolf,queries/q112.wav
+q113,2056,Sweet home Alabama,Lynyrd Skynyrd,queries/q113.wav
+q114,479,Enjoy the silence,Depeche Mode,queries/q114.wav
+q115,1747,Vivir asi es morir de amor,Camilo Sesto,queries/q115.wav
+q116,2024,You really got me,The Kinks,queries/q116.wav
+q118,70,All my loving,The Beatles,queries/q118.wav

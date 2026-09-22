@@ -7,3 +7,5 @@ venv/
 strawberryfields/*.c
 *.so
 build/
+*.wav
+*.ipynb_checkpoints

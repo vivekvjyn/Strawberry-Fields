@@ -1,0 +1,10 @@
+demucs
+joblib
+jupyter
+matplotlib
+pandas
+requests
+scipy
+torch
+tqdm
+yt-dlp
