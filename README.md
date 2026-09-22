@@ -22,9 +22,6 @@ pip install -r requirements.txt
 python setup.py build_ext --inplace
 ```
 
-Needs Python 3.10+, a C compiler for the Cython extensions, and ffmpeg to decode
-browser-recorded audio.
-
 Credentials go in `.env`:
 
 ```makefile
