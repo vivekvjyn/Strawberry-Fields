@@ -209,14 +209,15 @@ def salience_from_audio(y, sr, pitch_config):
     :param sr: Sampling rate of ``y`` in Hz.
     :type sr: int
     :param pitch_config: Settings with the keys ``fmin``, ``fmax``, ``frame_length``,
-        ``hop_seconds``, ``ref_hz``, ``bin_cents``, ``range_cents`` and ``sigma_cents``.
+        ``analysis_hop_seconds``, ``hop_seconds``, ``ref_hz``, ``bin_cents``,
+        ``range_cents`` and ``sigma_cents``.
     :type pitch_config: dict
     :return: Salience image of shape ``(bins, frames)``.
     :rtype: numpy.ndarray
     """
     times, f0 = extract_f0(
         y, sr, pitch_config["fmin"], pitch_config["fmax"], pitch_config["frame_length"],
-        hop_length=round(pitch_config["hop_seconds"] * sr),
+        hop_length=round(pitch_config["analysis_hop_seconds"] * sr),
     )
     cents = hz_to_cents(f0, pitch_config["ref_hz"])
     duration = len(y) / sr
@@ -255,8 +256,10 @@ def best_match(query_image, tracks, pitch_config):
                 continue
             track_image = _image_cache.get(track_id)
             if track_image is None:
+                # float16: the memoised images for the whole catalogue must fit in a
+                # 512 MB instance; cdist upcasts one track at a time when comparing.
                 track_image = rasterise(contour, pitch_config["bin_cents"], pitch_config["range_cents"],
-                                        pitch_config["sigma_cents"])
+                                        pitch_config["sigma_cents"]).astype(np.float16)
                 _image_cache[track_id] = track_image
             D = dtw(X=query_image, Y=track_image, metric="euclidean", subseq=True, backtrack=False)
             cost = D[-1, :].min() / min(query_image.shape[1], track_image.shape[1])

@@ -29,9 +29,10 @@ class Config:
         "fmin": 65.0,
         "fmax": 1046.0,
         "frame_length": 2048,
-        "hop_seconds": 0.1,
+        "analysis_hop_seconds": 0.04,   # pYIN hop on the query audio
+        "hop_seconds": 0.2,             # grid the contour is resampled to
         "ref_hz": 55.0,
         "bin_cents": 50,
-        "range_cents": 2400,
+        "range_cents": 1800,
         "sigma_cents": 200,
     }
