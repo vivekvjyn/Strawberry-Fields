@@ -2,14 +2,14 @@ import librosa
 import numpy as np
 import psycopg2
 from rich.progress import Progress
+from scipy.ndimage import gaussian_filter1d
 
 from strawberryfields.dtw import dtw
 from strawberryfields.pyin import pyin
-from strawberryfields.salience import rasterise
 
 
 _track_cache = None
-_image_cache = {}
+_profile_cache = {}
 
 
 def get_track_contours(database_url):
@@ -175,44 +175,19 @@ def center(contour):
 
 
 def contour_from_audio(y, sr, pitch_config):
-    """Turn a waveform into a gap-free pitch contour in cents on a uniform time grid.
+    """Turn a waveform into an un-normalised pitch contour in cents on a uniform time grid.
+
+    Unvoiced gaps are kept as ``nan`` (not interpolated), since
+    :func:`to_pitch_class_profile` needs them to render all-zero columns.
 
     :param y: Mono waveform.
     :type y: numpy.ndarray
     :param sr: Sampling rate of ``y`` in Hz.
     :type sr: int
     :param pitch_config: Settings with the keys ``fmin``, ``fmax``, ``frame_length``,
-        ``hop_seconds`` and ``ref_hz``.
+        ``analysis_hop_seconds``, ``hop_seconds`` and ``ref_hz``.
     :type pitch_config: dict
-    :return: Median-centred pitch contour in cents, one value per ``hop_seconds``.
-    :rtype: numpy.ndarray
-    """
-    times, f0 = extract_f0(
-        y, sr, pitch_config["fmin"], pitch_config["fmax"], pitch_config["frame_length"],
-        hop_length=round(pitch_config["hop_seconds"] * sr),
-    )
-    cents = hz_to_cents(f0, pitch_config["ref_hz"])
-    duration = len(y) / sr
-    _, cents = resample_uniform(times, cents, pitch_config["hop_seconds"], duration=duration)
-    cents = fill_gaps(cents)
-    return center(cents)
-
-
-def salience_from_audio(y, sr, pitch_config):
-    """Turn a waveform into a key-normalised pitch-salience image.
-
-    Unlike :func:`contour_from_audio`, unvoiced gaps are kept (not interpolated)
-    so they render as all-zero columns in the image.
-
-    :param y: Mono waveform.
-    :type y: numpy.ndarray
-    :param sr: Sampling rate of ``y`` in Hz.
-    :type sr: int
-    :param pitch_config: Settings with the keys ``fmin``, ``fmax``, ``frame_length``,
-        ``analysis_hop_seconds``, ``hop_seconds``, ``ref_hz``, ``bin_cents``,
-        ``range_cents`` and ``sigma_cents``.
-    :type pitch_config: dict
-    :return: Salience image of shape ``(bins, frames)``.
+    :return: Pitch contour in cents, ``nan`` where unvoiced, one value per ``hop_seconds``.
     :rtype: numpy.ndarray
     """
     times, f0 = extract_f0(
@@ -222,23 +197,125 @@ def salience_from_audio(y, sr, pitch_config):
     cents = hz_to_cents(f0, pitch_config["ref_hz"])
     duration = len(y) / sr
     _, cents = resample_uniform(times, cents, pitch_config["hop_seconds"], duration=duration)
-    cents = center(cents)
-    return rasterise(cents, pitch_config["bin_cents"], pitch_config["range_cents"], pitch_config["sigma_cents"])
+    return cents
 
 
-def best_match(query_image, tracks, pitch_config):
-    """Find the track whose pitch-salience image contains the best subsequence match.
+def to_pitch_class_profile(contour, n_classes, sigma_cents=0.0):
+    """Fold a cents contour into an octave-invariant pitch-class salience profile.
 
-    Each track's stored contour is rasterised into a salience image the first
-    time it's seen and memoised, so across searches every song is rasterised
-    exactly once; the image is compared against the query with subsequence DTW
-    and the cost normalised by the shorter length.
+    Every pitch is reduced mod 1200 cents (its position within an octave, regardless
+    of which octave), then rendered as a salience image: a voiced frame is 1 at its
+    pitch-class bin and 0 elsewhere, blurred along the pitch-class axis with a
+    Gaussian that wraps around the octave (0 and 1200 cents are the same point).
+    Because pitch class is octave-invariant by construction, matching against several
+    circular shifts of this profile (see :func:`transposed_subsequence_cost`) covers
+    a range of tonic differences with plain, un-windowed subsequence DTW -- no
+    per-window re-centring is needed, and ordinary DTW warping absorbs tempo
+    differences on its own.
 
-    :param query_image: Salience image of the query, as returned by :func:`salience_from_audio`.
-    :type query_image: numpy.ndarray
+    :param contour: Pitch contour in cents, ``nan`` where unvoiced.
+    :type contour: numpy.ndarray
+    :param n_classes: Number of pitch classes per octave.
+    :type n_classes: int
+    :param sigma_cents: Width of the Gaussian blur in cents; 0 disables blurring.
+    :type sigma_cents: float
+    :return: Profile of shape ``(n_classes, len(contour))``.
+    :rtype: numpy.ndarray
+    """
+    bin_cents = 1200.0 / n_classes
+    contour = np.asarray(contour, dtype=np.float64)
+    image = np.zeros((n_classes, len(contour)))
+    voiced = ~np.isnan(contour)
+    bins = np.rint(np.mod(contour[voiced], 1200.0) / bin_cents).astype(int) % n_classes
+    image[bins, np.flatnonzero(voiced)] = 1.0
+    if sigma_cents > 0:
+        image = gaussian_filter1d(image, sigma_cents / bin_cents, axis=0, mode="wrap")
+        sums = image.sum(axis=0, keepdims=True)
+        image = np.divide(image, sums, out=np.zeros_like(image), where=sums > 0)
+    return image
+
+
+def pitch_class_profile_from_audio(y, sr, pitch_config):
+    """Turn a waveform straight into a pitch-class salience profile.
+
+    :param y: Mono waveform.
+    :type y: numpy.ndarray
+    :param sr: Sampling rate of ``y`` in Hz.
+    :type sr: int
+    :param pitch_config: Settings with the keys ``fmin``, ``fmax``, ``frame_length``,
+        ``analysis_hop_seconds``, ``hop_seconds``, ``ref_hz``, ``n_classes`` and
+        ``sigma_cents``.
+    :type pitch_config: dict
+    :return: Profile of shape ``(n_classes, frames)``.
+    :rtype: numpy.ndarray
+    """
+    cents = contour_from_audio(y, sr, pitch_config)
+    return to_pitch_class_profile(cents, pitch_config["n_classes"], pitch_config["sigma_cents"])
+
+
+def subsequence_cost(query, reference, metric="euclidean"):
+    """Compute the subsequence-DTW cost of matching a query inside a reference.
+
+    :param query: Query representation, shape ``(features, frames)``.
+    :type query: numpy.ndarray
+    :param reference: Reference representation, shape ``(features, frames)``.
+    :type reference: numpy.ndarray
+    :param metric: Distance metric passed to :func:`strawberryfields.dtw.dtw`.
+    :type metric: str
+    :return: DTW cost normalised by the shorter of the two lengths.
+    :rtype: float
+    """
+    D = dtw(X=query, Y=reference, metric=metric, subseq=True, backtrack=False)
+    return D[-1, :].min() / min(query.shape[1], reference.shape[1])
+
+
+def transposed_subsequence_cost(query_profile, reference_profile, n_classes, metric="euclidean", shift_step=1):
+    """Match a query pitch-class profile inside a reference, trying several transpositions.
+
+    Circularly shifting a pitch-class profile by one class is exactly a transposition
+    by ``1200 / n_classes`` cents. ``shift_step`` trades transposition coverage for
+    speed: with ``shift_step=1`` every class shift is tried; with ``shift_step=2``
+    only every other one is (semitone steps, if ``n_classes=24``), relying on the
+    profile's Gaussian blur to absorb the skipped in-between shifts. Each shift tried
+    is one ordinary, un-windowed subsequence DTW over the whole reference.
+
+    :param query_profile: Query profile, as returned by :func:`to_pitch_class_profile`.
+    :type query_profile: numpy.ndarray
+    :param reference_profile: Reference profile, as returned by
+        :func:`to_pitch_class_profile`.
+    :type reference_profile: numpy.ndarray
+    :param n_classes: Number of pitch classes per octave; must match how both
+        profiles were built.
+    :type n_classes: int
+    :param metric: Distance metric passed to :func:`subsequence_cost`.
+    :type metric: str
+    :param shift_step: Try every ``shift_step``-th class shift instead of all of them.
+    :type shift_step: int
+    :return: The lowest subsequence-DTW cost over the transpositions tried.
+    :rtype: float
+    """
+    best = np.inf
+    for shift in range(0, n_classes, shift_step):
+        cost = subsequence_cost(query_profile, np.roll(reference_profile, shift, axis=0), metric)
+        if cost < best:
+            best = cost
+    return best
+
+
+def best_match(query_profile, tracks, pitch_config):
+    """Find the track whose pitch-class profile contains the best subsequence match.
+
+    Each track's stored contour is turned into a pitch-class profile the first time
+    it's seen and memoised, so across searches every song is profiled exactly once;
+    the profile is compared against the query with :func:`transposed_subsequence_cost`.
+
+    :param query_profile: Profile of the query, as returned by
+        :func:`pitch_class_profile_from_audio`.
+    :type query_profile: numpy.ndarray
     :param tracks: Track ids paired with their pitch contours in cents.
     :type tracks: collections.abc.Iterable[tuple[int, numpy.ndarray]]
-    :param pitch_config: Settings with the keys ``bin_cents``, ``range_cents`` and ``sigma_cents``.
+    :param pitch_config: Settings with the keys ``n_classes``, ``sigma_cents`` and
+        ``shift_step``.
     :type pitch_config: dict
     :return: The id of the best-matching track (``None`` if there are no tracks), and the
         10 lowest-cost ``(track_id, cost)`` pairs, best first.
@@ -254,15 +331,15 @@ def best_match(query_image, tracks, pitch_config):
             if len(contour) == 0:
                 progress.advance(task)
                 continue
-            track_image = _image_cache.get(track_id)
-            if track_image is None:
-                # float16: the memoised images for the whole catalogue must fit in a
+            track_profile = _profile_cache.get(track_id)
+            if track_profile is None:
+                # float16: the memoised profiles for the whole catalogue must fit in a
                 # 512 MB instance; cdist upcasts one track at a time when comparing.
-                track_image = rasterise(contour, pitch_config["bin_cents"], pitch_config["range_cents"],
-                                        pitch_config["sigma_cents"]).astype(np.float16)
-                _image_cache[track_id] = track_image
-            D = dtw(X=query_image, Y=track_image, metric="euclidean", subseq=True, backtrack=False)
-            cost = D[-1, :].min() / min(query_image.shape[1], track_image.shape[1])
+                track_profile = to_pitch_class_profile(
+                    contour, pitch_config["n_classes"], pitch_config["sigma_cents"]).astype(np.float16)
+                _profile_cache[track_id] = track_profile
+            cost = transposed_subsequence_cost(query_profile, track_profile, pitch_config["n_classes"],
+                                               "euclidean", pitch_config["shift_step"])
             results.append((track_id, cost))
             if cost < best_cost:
                 best_id, best_cost = track_id, cost

@@ -32,7 +32,7 @@ class Config:
         "analysis_hop_seconds": 0.04,   # pYIN hop on the query audio
         "hop_seconds": 0.2,             # grid the contour is resampled to
         "ref_hz": 55.0,
-        "bin_cents": 50,
-        "range_cents": 1800,
-        "sigma_cents": 200,
+        "n_classes": 24,                # pitch classes per octave (50 cents each)
+        "sigma_cents": 150,
+        "shift_step": 2,                # try every 2nd class shift -> 12 transpositions
     }
