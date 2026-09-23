@@ -1,8 +1,8 @@
+import csv
 from pathlib import Path
 
 import librosa
 import numpy as np
-import pandas as pd
 from joblib import Parallel, delayed
 from scipy.ndimage import gaussian_filter1d
 from tqdm.auto import tqdm
@@ -129,110 +129,62 @@ def downsample(contour, factor):
     """
     n = len(contour) // factor * factor
     blocks = np.asarray(contour[:n], dtype=np.float64).reshape(-1, factor)
-    with np.errstate(all="ignore"):
-        out = np.nanmedian(blocks, axis=1)
+    out = np.full(len(blocks), np.nan)
+    voiced = ~np.isnan(blocks).all(axis=1)
+    out[voiced] = np.nanmedian(blocks[voiced], axis=1)
     return out
 
 
-def fill_gaps(contour):
-    """Fill ``nan`` gaps in a contour by linear interpolation.
-
-    Leading and trailing gaps take the nearest valid value; a contour with no valid
-    values becomes all zeros.
-
-    :param contour: Pitch contour with ``nan`` for missing values.
-    :type contour: numpy.ndarray
-    :return: The contour with no ``nan`` values.
-    :rtype: numpy.ndarray
-    """
-    contour = np.asarray(contour, dtype=np.float64)
-    ok = ~np.isnan(contour)
-    if ok.sum() == 0:
-        return np.zeros_like(contour)
-    idx = np.arange(len(contour))
-    return np.interp(idx, idx[ok], contour[ok])
-
-
-def normalise_query(cents):
-    """Remove the singer's key from a query contour.
-
-    :param cents: Query pitch contour in cents.
-    :type cents: numpy.ndarray
-    :return: The contour with the median of its voiced frames subtracted.
-    :rtype: numpy.ndarray
-    """
-    return cents - np.nanmedian(cents)
-
-
-def normalise_reference(cents, window):
-    """Remove the local key of a reference contour with a sliding median.
-
-    :param cents: Reference pitch contour in cents.
-    :type cents: numpy.ndarray
-    :param window: Width of the sliding window, in frames.
-    :type window: int
-    :return: The contour with its local median subtracted.
-    :rtype: numpy.ndarray
-    """
-    local = pd.Series(cents).rolling(window, center=True, min_periods=1).median().to_numpy()
-    local = pd.Series(local).ffill().bfill().to_numpy()
-    return cents - local
-
-
-def to_contour(pitch_track, is_query, eval_cfg, pitch_cfg):
-    """Turn a raw pitch track into a key-normalised cents contour at the evaluation hop.
+def downsampled_cents(pitch_track, eval_cfg, pitch_cfg):
+    """Turn a raw pitch track into an un-normalised cents contour at the evaluation hop.
 
     :param pitch_track: Pitch track as returned by :func:`extract_f0`.
     :type pitch_track: tuple[numpy.ndarray, numpy.ndarray]
-    :param is_query: Whether ``pitch_track`` is a query (median-centred as a whole) or
-        a reference (key removed with a sliding median).
-    :type is_query: bool
-    :param eval_cfg: Evaluation settings with the keys ``hop_seconds``, ``norm_window_s``
-        and ``f_ref``.
+    :param eval_cfg: Evaluation settings with the keys ``hop_seconds`` and ``f_ref``.
     :type eval_cfg: dict
     :param pitch_cfg: Pitch-extraction settings with the key ``hop_seconds``.
     :type pitch_cfg: dict
-    :return: Key-normalised pitch contour in cents, ``nan`` where unvoiced.
+    :return: Pitch contour in cents relative to ``f_ref``, ``nan`` where unvoiced.
     :rtype: numpy.ndarray
     """
     _, f0 = pitch_track
     factor = max(1, round(eval_cfg["hop_seconds"] / pitch_cfg["hop_seconds"]))
-    cents = downsample(hz_to_cents(f0, eval_cfg["f_ref"]), factor)
-    if is_query:
-        return normalise_query(cents)
-    window = max(3, int(eval_cfg["norm_window_s"] / eval_cfg["hop_seconds"]) | 1)
-    return normalise_reference(cents, window)
+    return downsample(hz_to_cents(f0, eval_cfg["f_ref"]), factor)
 
 
-def to_salience_image(contour, eval_cfg, sigma_cents=0.0, unit_sum=True):
-    """Render a pitch contour as a 2D salience image, frequency on y and time on x.
+def to_pitch_class_profile(contour, n_classes, sigma_cents=0.0):
+    """Fold a cents contour into an octave-invariant pitch-class salience profile.
 
-    A voiced frame is 1 at its pitch bin and 0 elsewhere; unvoiced frames are
-    all-zero columns. ``sigma_cents`` blurs each column along the frequency axis
-    with a Gaussian, so nearby pitches partially overlap.
+    Every pitch is reduced mod 1200 cents (its position within an octave,
+    regardless of which octave), then rendered the same way as a salience image: a
+    voiced frame is 1 at its pitch-class bin and 0 elsewhere, blurred along the
+    pitch-class axis with a Gaussian that wraps around the octave (0 and 1200 cents
+    are the same point). Because pitch class is transposition- and octave-invariant
+    by construction, matching against 24 shifts of this profile (see
+    :func:`transposed_subsequence_cost`) covers every possible tonic difference
+    with a single un-windowed subsequence DTW per shift -- no re-centring or tempo
+    resampling needed, since ordinary DTW already warps through tempo differences.
 
     :param contour: Pitch contour in cents, ``nan`` where unvoiced.
     :type contour: numpy.ndarray
-    :param eval_cfg: Settings with the keys ``bin_cents`` and ``range_cents``.
-    :type eval_cfg: dict
+    :param n_classes: Number of pitch classes per octave (24 for quarter-tone/sruti
+        resolution, i.e. 50 cents per class).
+    :type n_classes: int
     :param sigma_cents: Width of the Gaussian blur in cents; 0 disables blurring.
     :type sigma_cents: float
-    :param unit_sum: If blurring, rescale each voiced column to sum to 1.
-    :type unit_sum: bool
-    :return: Image of shape ``(bins, len(contour))``.
+    :return: Profile of shape ``(n_classes, len(contour))``.
     :rtype: numpy.ndarray
     """
-    n_bins = int(2 * eval_cfg["range_cents"] / eval_cfg["bin_cents"]) + 1
-    image = np.zeros((n_bins, len(contour)))
+    bin_cents = 1200.0 / n_classes
+    contour = np.asarray(contour, dtype=np.float64)
+    image = np.zeros((n_classes, len(contour)))
     voiced = ~np.isnan(contour)
-    bins = np.rint((contour[voiced] + eval_cfg["range_cents"]) / eval_cfg["bin_cents"]).astype(int)
-    keep = (bins >= 0) & (bins < n_bins)
-    image[bins[keep], np.flatnonzero(voiced)[keep]] = 1.0
+    bins = np.rint(np.mod(contour[voiced], 1200.0) / bin_cents).astype(int) % n_classes
+    image[bins, np.flatnonzero(voiced)] = 1.0
     if sigma_cents > 0:
-        image = gaussian_filter1d(image, sigma_cents / eval_cfg["bin_cents"], axis=0, mode="constant")
-        if unit_sum:
-            sums = image.sum(axis=0, keepdims=True)
-            image = np.divide(image, sums, out=np.zeros_like(image), where=sums > 0)
+        image = gaussian_filter1d(image, sigma_cents / bin_cents, axis=0, mode="wrap")
+        sums = image.sum(axis=0, keepdims=True)
+        image = np.divide(image, sums, out=np.zeros_like(image), where=sums > 0)
     return image
 
 
@@ -273,28 +225,143 @@ def subsequence_match(query, reference, metric="euclidean"):
     return int(ref_idx.min()), int(ref_idx.max())
 
 
-def rank_queries(query_reprs, ref_reprs, true_ids, metric="euclidean", desc="matching"):
+def transposed_subsequence_cost(query_profile, reference_profile, n_classes, metric="euclidean", shift_step=1):
+    """Match a query pitch-class profile inside a reference, trying several transpositions.
+
+    Circularly shifting a pitch-class profile by one class is exactly a transposition
+    by ``1200 / n_classes`` cents, so trying ``n_classes`` shifts covers every
+    possible tonic difference at the profile's own resolution. ``shift_step`` searches
+    coarser: e.g. with 24 classes (50 cents each), ``shift_step=2`` tries every other
+    shift -- semitone (100-cent) transpositions -- for half the cost, relying on the
+    profile's Gaussian blur to absorb the skipped in-between shifts. Each shift tried
+    is one ordinary, un-windowed subsequence DTW over the whole reference -- the
+    profile's octave/transposition invariance means no per-window re-centring is needed.
+
+    :param query_profile: Query profile, as returned by :func:`to_pitch_class_profile`.
+    :type query_profile: numpy.ndarray
+    :param reference_profile: Reference profile, as returned by
+        :func:`to_pitch_class_profile`.
+    :type reference_profile: numpy.ndarray
+    :param n_classes: Number of pitch classes per octave; must match how both
+        profiles were built.
+    :type n_classes: int
+    :param metric: Distance metric passed to :func:`subsequence_cost`.
+    :type metric: str
+    :param shift_step: Try every ``shift_step``-th class shift instead of all of them.
+    :type shift_step: int
+    :return: The lowest subsequence-DTW cost over the transpositions tried.
+    :rtype: float
+    """
+    best = np.inf
+    for shift in range(0, n_classes, shift_step):
+        cost = subsequence_cost(query_profile, np.roll(reference_profile, shift, axis=0), metric)
+        if cost < best:
+            best = cost
+    return best
+
+
+def transposed_subsequence_match(query_profile, reference_profile, n_classes, metric="euclidean", shift_step=1):
+    """Locate where a query pitch-class profile best matches within a reference.
+
+    Same search as :func:`transposed_subsequence_cost`, but the best transposition's
+    warping path is also backtracked to find the matched frames, for inspecting one
+    query/reference pair.
+
+    :param query_profile: Query profile, as returned by :func:`to_pitch_class_profile`.
+    :type query_profile: numpy.ndarray
+    :param reference_profile: Reference profile, as returned by
+        :func:`to_pitch_class_profile`.
+    :type reference_profile: numpy.ndarray
+    :param n_classes: Number of pitch classes per octave; must match how both
+        profiles were built.
+    :type n_classes: int
+    :param metric: Distance metric passed to :func:`subsequence_cost`.
+    :type metric: str
+    :param shift_step: Try every ``shift_step``-th class shift instead of all of them.
+    :type shift_step: int
+    :return: The lowest cost and the first and last reference frame of the match.
+    :rtype: tuple[float, int, int]
+    """
+    best_cost, best_shifted = np.inf, None
+    for shift in range(0, n_classes, shift_step):
+        shifted = np.roll(reference_profile, shift, axis=0)
+        cost = subsequence_cost(query_profile, shifted, metric)
+        if cost < best_cost:
+            best_cost, best_shifted = cost, shifted
+    lo, hi = subsequence_match(query_profile, best_shifted, metric)
+    return best_cost, lo, hi
+
+
+def rank_queries(query_reprs, ref_reprs, true_ids, metric="euclidean", desc="matching", cost=None,
+                 query_ids=None, cache_path=None):
     """Match every query against every reference and rank the true song's cost.
 
     :param query_reprs: Query representations, each shape ``(features, frames)``.
     :type query_reprs: collections.abc.Sequence[numpy.ndarray]
-    :param ref_reprs: Reference representations keyed by song id.
+    :param ref_reprs: Reference representations keyed by song id (or whatever ``cost``
+        expects as its second argument).
     :type ref_reprs: dict[int, numpy.ndarray]
     :param true_ids: The correct song id for each entry in ``query_reprs``.
     :type true_ids: collections.abc.Sequence[int]
-    :param metric: Distance metric passed to :func:`subsequence_cost`.
+    :param metric: Distance metric passed to :func:`subsequence_cost`; ignored when
+        ``cost`` is given.
     :type metric: str
     :param desc: Label shown on the progress bar.
     :type desc: str
+    :param cost: Scores one query against one reference; defaults to
+        :func:`subsequence_cost` with ``metric``.
+    :type cost: collections.abc.Callable[[numpy.ndarray, numpy.ndarray], float] or None
+    :param query_ids: A stable id per entry of ``query_reprs``, used as the cache key
+        alongside each song id; defaults to its position. Needed for resuming to work
+        if ``query_reprs`` might be reordered or subsampled between runs.
+    :type query_ids: collections.abc.Sequence or None
+    :param cache_path: CSV file of ``query_id, song_id, cost`` rows. Existing rows are
+        loaded and skipped; each cost computed this run is appended immediately (not
+        batched), so interrupting and rerunning with the same path resumes from
+        whatever was already computed instead of starting over.
+    :type cache_path: str or pathlib.Path or None
     :return: The rank of the true song for each query (1 means it scored best), the
         full cost matrix, and the song ids in the order used for its columns.
     :rtype: tuple[numpy.ndarray, numpy.ndarray, list[int]]
     """
+    if cost is None:
+        cost = lambda q, r: subsequence_cost(q, r, metric)
     song_ids = list(ref_reprs)
+    if query_ids is None:
+        query_ids = list(range(len(query_reprs)))
     costs = np.full((len(query_reprs), len(song_ids)), np.inf)
-    for i, q in enumerate(tqdm(query_reprs, desc=desc)):
-        for j, sid in enumerate(song_ids):
-            costs[i, j] = subsequence_cost(q, ref_reprs[sid], metric)
+
+    cached, cache_file, writer = {}, None, None
+    if cache_path is not None:
+        cache_path = Path(cache_path)
+        if cache_path.exists():
+            with open(cache_path, newline="") as f:
+                for row in csv.DictReader(f):
+                    cached[(row["query_id"], row["song_id"])] = float(row["cost"])
+        else:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_file = open(cache_path, "a", newline="")
+        writer = csv.writer(cache_file)
+        if cache_file.tell() == 0:
+            writer.writerow(["query_id", "song_id", "cost"])
+
+    try:
+        for i in tqdm(range(len(query_reprs)), desc=desc):
+            qid = query_ids[i]
+            for j, sid in enumerate(song_ids):
+                key = (str(qid), str(sid))
+                if key in cached:
+                    costs[i, j] = cached[key]
+                    continue
+                c = cost(query_reprs[i], ref_reprs[sid])
+                costs[i, j] = c
+                if writer is not None:
+                    writer.writerow([qid, sid, c])
+                    cache_file.flush()
+    finally:
+        if cache_file is not None:
+            cache_file.close()
+
     true_cols = np.array([song_ids.index(t) for t in true_ids])
     true_costs = costs[np.arange(len(costs)), true_cols]
     ranks = 1 + (costs < true_costs[:, None]).sum(axis=1)

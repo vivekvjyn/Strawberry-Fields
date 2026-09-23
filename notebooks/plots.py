@@ -43,8 +43,12 @@ def set_style(palette):
     })
 
 
-def plot_f0(ax, times, f0, title=None, color=None, highlight=None, highlight_color="#D55E00", **kw):
-    """Plot a pitch track (f0 over time) on a log-frequency axis.
+def plot_f0(ax, times, f0, title=None, color=None, highlight=None, highlight_color="#D55E00",
+            xlim=None, **kw):
+    """Plot a pitch track (f0 over time) on a log-frequency axis labelled with note names.
+
+    The y axis is cropped to the pitch range of the frames in view (plus a semitone
+    either side), so a track spanning several octaves doesn't leave the plot mostly empty.
 
     :param ax: Axes to draw on.
     :type ax: matplotlib.axes.Axes
@@ -61,61 +65,106 @@ def plot_f0(ax, times, f0, title=None, color=None, highlight=None, highlight_col
     :type highlight: tuple[float, float] or None
     :param highlight_color: Color of the shaded ``highlight`` span.
     :type highlight_color: str
+    :param xlim: ``(start, end)`` time span to show; ``None`` shows the whole track.
+    :type xlim: tuple[float, float] or None
     :param kw: Extra keyword arguments passed to :meth:`matplotlib.axes.Axes.plot`.
     """
     if highlight is not None:
         ax.axvspan(*highlight, color=highlight_color, alpha=0.15, zorder=0, label="Matched region")
         ax.legend(loc="upper right")
     ax.plot(times, f0, "-", color=color, **kw)
-    ax.set(xlabel="Time (s)", ylabel="$f_0$ (Hz)", title=title)
+    ax.set(xlabel="Time (s)", ylabel="Note", title=title)
     ax.set_yscale("log")
 
+    times, f0 = np.asarray(times, dtype=np.float64), np.asarray(f0, dtype=np.float64)
+    if xlim is not None:
+        ax.set_xlim(*xlim)
+        f0 = f0[(times >= xlim[0]) & (times <= xlim[1])]
+    _label_notes(ax, f0)
 
-def plot_contour(ax, contour, eval_cfg, title=None, color=None, highlight=None, highlight_color="#D55E00", **kw):
-    """Plot a key-normalised cents contour, as built by :func:`utils.to_contour`.
+
+def _label_notes(ax, f0):
+    """Crop a log-frequency axis to the given frequencies and label every semitone with its piano key name.
+
+    The range is the 1st-99th percentile of the frequencies, so a few stray
+    pitch-tracking errors (typically octave jumps) are cropped rather than stretching
+    the axis. Sharps are left unlabelled when the range exceeds two octaves so the
+    labels stay legible.
+
+    :param ax: Axes whose y axis is frequency in Hz on a log scale.
+    :type ax: matplotlib.axes.Axes
+    :param f0: The frequencies in view; sets the axis range and the semitones to label.
+    :type f0: numpy.ndarray
+    """
+    from matplotlib.ticker import NullFormatter, NullLocator
+
+    voiced = f0[np.isfinite(f0) & (f0 > 0)]
+    if voiced.size == 0:
+        return
+    lo, hi = np.percentile(69 + 12 * np.log2(voiced / 440.0), [1, 99])
+    ax.set_ylim(440.0 * 2 ** ((lo - 1 - 69) / 12), 440.0 * 2 ** ((hi + 1 - 69) / 12))
+    notes = np.arange(int(np.floor(lo)), int(np.ceil(hi)) + 1)
+    ax.set_yticks(440.0 * 2 ** ((notes - 69) / 12))
+    ax.set_yticklabels(_note_labels(ax, notes, lambda n: f"{_NOTE_NAMES[n % 12]}{n // 12 - 1}"), fontsize=7)
+    ax.yaxis.set_minor_locator(NullLocator())
+    ax.yaxis.set_minor_formatter(NullFormatter())
+
+
+_NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+
+def _note_labels(ax, semitones, name):
+    """Name each semitone, thinning the labels to what fits the axes' height.
+
+    Tries every semitone, then the naturals, then every third, sixth and finally
+    twelfth semitone, keeping the first set that fits.
+
+    :param ax: Axes the labels will go on; its height decides how many fit.
+    :type ax: matplotlib.axes.Axes
+    :param semitones: The semitones being labelled, as integers.
+    :type semitones: numpy.ndarray
+    :param name: Names one semitone.
+    :type name: collections.abc.Callable[[int], str]
+    :return: A label per semitone, empty where it's been thinned out.
+    :rtype: list[str]
+    """
+    height_points = ax.get_window_extent().height * 72 / ax.figure.dpi
+    fits = max(2, int(height_points // 11))
+    naturals = (0, 2, 4, 5, 7, 9, 11)
+    for keep in (lambda n: True, lambda n: n % 12 in naturals, lambda n: n % 3 == 0,
+                 lambda n: n % 6 == 0, lambda n: n % 12 == 0):
+        if sum(1 for n in semitones if keep(n)) <= fits:
+            break
+    return [name(n) if keep(n) else "" for n in semitones]
+
+
+def plot_pitch_class_profile(ax, profile, eval_cfg, title=None):
+    """Plot a pitch-class salience profile, as built by :func:`utils.to_pitch_class_profile`.
+
+    The y axis covers one octave (0-1200 cents), labelled with note names relative
+    to class 0 as C; unlike an absolute-cents salience image it never needs cropping,
+    since every profile has the same fixed range regardless of the recording's pitch.
 
     :param ax: Axes to draw on.
     :type ax: matplotlib.axes.Axes
-    :param contour: Pitch contour in cents, ``nan`` where unvoiced.
-    :type contour: numpy.ndarray
-    :param eval_cfg: Settings with the key ``hop_seconds``.
-    :type eval_cfg: dict
-    :param title: Axes title.
-    :type title: str or None
-    :param color: Line color; ``None`` uses the axes' current color cycle.
-    :type color: str or None
-    :param highlight: ``(start, end)`` time span to shade.
-    :type highlight: tuple[float, float] or None
-    :param highlight_color: Color of the shaded ``highlight`` span.
-    :type highlight_color: str
-    :param kw: Extra keyword arguments passed to :meth:`matplotlib.axes.Axes.plot`.
-    """
-    times = np.arange(len(contour)) * eval_cfg["hop_seconds"]
-    if highlight is not None:
-        ax.axvspan(*highlight, color=highlight_color, alpha=0.15, zorder=0, label="Matched region")
-        ax.legend(loc="upper right")
-    ax.plot(times, contour, "-", color=color, **kw)
-    ax.set(xlabel="Time (s)", ylabel="Cents", title=title)
-
-
-def plot_salience_image(ax, image, eval_cfg, title=None):
-    """Plot a pitch-salience image with time and cents axes.
-
-    :param ax: Axes to draw on.
-    :type ax: matplotlib.axes.Axes
-    :param image: Image as returned by :func:`utils.to_salience_image`.
-    :type image: numpy.ndarray
-    :param eval_cfg: Settings with the keys ``hop_seconds``, ``bin_cents`` and ``range_cents``.
+    :param profile: Profile as returned by :func:`utils.to_pitch_class_profile`.
+    :type profile: numpy.ndarray
+    :param eval_cfg: Settings with the keys ``hop_seconds`` and ``n_classes``.
     :type eval_cfg: dict
     :param title: Axes title.
     :type title: str or None
     """
-    hop, rc = eval_cfg["hop_seconds"], eval_cfg["range_cents"]
-    im = ax.imshow(image, origin="lower", aspect="auto",
-                    extent=[0, image.shape[1] * hop, -rc, rc])
-    ax.set(xlabel="Time (s)", ylabel="Cents", title=title)
+    hop, n_classes = eval_cfg["hop_seconds"], eval_cfg["n_classes"]
+    bin_cents = 1200.0 / n_classes
+    im = ax.imshow(profile, origin="lower", aspect="auto",
+                    extent=[0, profile.shape[1] * hop, -bin_cents / 2, 1200.0 + bin_cents / 2])
+    ax.set(xlabel="Time (s)", ylabel="Pitch class (0 = C)", title=title)
     ax.grid(False)
     ax.figure.colorbar(im, ax=ax, label="Salience", pad=0.02)
+
+    classes = np.arange(n_classes)
+    ax.set_yticks(classes * bin_cents)
+    ax.set_yticklabels(_note_labels(ax, classes, lambda n: _NOTE_NAMES[n % 12]), fontsize=7)
     return im
 
 
@@ -131,7 +180,15 @@ def plot_voiced_fraction_hist(ax, fractions, title=None, color=None):
     :param color: Bar color; ``None`` uses the axes' current color cycle.
     :type color: str or None
     """
-    ax.hist(fractions, bins=np.linspace(0, 1, 21), color=color, edgecolor="white", linewidth=0.6)
+    from scipy.stats import gaussian_kde
+
+    fractions = np.asarray(fractions, dtype=np.float64)
+    bins = np.linspace(0, 1, 21)
+    ax.hist(fractions, bins=bins, color=color, alpha=0.6, edgecolor="white", linewidth=0.6)
+    if len(fractions) > 1 and np.ptp(fractions) > 0:
+        grid = np.linspace(0, 1, 300)
+        # scale the density to the count histogram: counts = density * n * bin width
+        ax.plot(grid, gaussian_kde(fractions)(grid) * len(fractions) * (bins[1] - bins[0]), color=color, lw=1.8)
     ax.set(xlabel="Voiced-frame fraction", ylabel="Tracks", title=title, xlim=(0, 1))
 
 
@@ -217,6 +274,9 @@ def plot_timing_bar(ax, table):
 def plot_cost_distributions(axes, costs_by_name, true_cols, genuine_color, impostor_color):
     """Plot genuine-vs-impostor DTW cost distributions, one axes per representation.
 
+    Each distribution is drawn as a density histogram with a Gaussian kernel density
+    estimate overlaid.
+
     :param axes: One axes per entry in ``costs_by_name``.
     :type axes: collections.abc.Sequence[matplotlib.axes.Axes]
     :param costs_by_name: Representation name to its full query-by-candidate cost matrix.
@@ -231,7 +291,7 @@ def plot_cost_distributions(axes, costs_by_name, true_cols, genuine_color, impos
         cost is lower than an impostor's).
     :rtype: dict[str, float]
     """
-    from scipy.stats import mannwhitneyu
+    from scipy.stats import gaussian_kde, mannwhitneyu
 
     auc = {}
     for ax, (name, costs) in zip(np.atleast_1d(axes), costs_by_name.items()):
@@ -239,9 +299,14 @@ def plot_cost_distributions(axes, costs_by_name, true_cols, genuine_color, impos
         mask = np.ones_like(costs, dtype=bool)
         mask[np.arange(len(costs)), true_cols] = False
         impostor = costs[mask]
+        genuine, impostor = genuine[np.isfinite(genuine)], impostor[np.isfinite(impostor)]
 
-        ax.hist(impostor, bins=40, alpha=0.6, density=True, color=impostor_color, label="Other songs")
-        ax.hist(genuine, bins=40, alpha=0.8, density=True, color=genuine_color, label="True song")
+        ax.hist(impostor, bins=40, alpha=0.4, density=True, color=impostor_color, label="Other songs")
+        ax.hist(genuine, bins=40, alpha=0.6, density=True, color=genuine_color, label="True song")
+        grid = np.linspace(min(genuine.min(), impostor.min()), max(genuine.max(), impostor.max()), 300)
+        for sample, color in ((impostor, impostor_color), (genuine, genuine_color)):
+            if len(sample) > 1 and np.ptp(sample) > 0:
+                ax.plot(grid, gaussian_kde(sample)(grid), color=color, lw=1.8)
         ax.set(title=name, xlabel="Normalised DTW cost", ylabel="Density")
         ax.legend()
 
