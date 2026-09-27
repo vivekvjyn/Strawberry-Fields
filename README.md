@@ -7,7 +7,6 @@ Each match returns:
 | Field | Description |
 |---|---|
 | Title | name of the piece |
-| Artists | credited performers |
 | *Rāga* | melodic framework it is set in |
 | *Tāla* | metrical cycle |
 
