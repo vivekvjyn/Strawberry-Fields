@@ -10,8 +10,6 @@ Each match returns:
 | Artists | credited performers |
 | *Rāga* | melodic framework it is set in |
 | *Tāla* | metrical cycle |
-| *Laya* | tempo class |
-| Form | compositional form |
 
 ## Setup
 
