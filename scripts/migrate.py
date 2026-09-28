@@ -13,6 +13,7 @@ inside a transaction. A hosted database such as Render's already has both, so th
 script never has to.
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -23,6 +24,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from pitchtrack.config import database_url
+from pitchtrack.console import console
 
 MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 
@@ -62,18 +64,23 @@ def migrate(connection_url, migrations_dir=MIGRATIONS_DIR):
     return applied
 
 
-def main():
+def main(argv=None):
     """Apply the pending migrations to the database named by the environment.
 
+    :param argv: Command line arguments; ``None`` reads them from the command line.
+    :type argv: list[str] or None
     :return: Process exit status.
     :rtype: int
     """
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.parse_args(argv)
     applied = migrate(database_url())
     if not applied:
-        print("the database is already up to date")
+        console.print("[green]up to date[/green] every migration has been applied")
         return 0
     for version in applied:
-        print(f"applied {version}")
+        console.print(f"[green]applied[/green] {version}")
     return 0
 
 

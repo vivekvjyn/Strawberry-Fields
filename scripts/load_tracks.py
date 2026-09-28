@@ -7,6 +7,11 @@ one row: the title, raga and tala it was built with, and the packed contour. The
 credentials come from ``.env`` in the project root, so the same file points the
 application and this loader at the same database.
 
+Every artefact is read and checked — its contour is unpacked, so a truncated file is
+found here rather than as a corrupt row later — before the table is touched. One
+unreadable artefact stops the load, listed with the others that could not be read, and
+leaves the table as it was.
+
 The load is one transaction — see :func:`pitchtrack.repository.replace_all` — so a
 failure leaves the table holding the corpus it held before.
 
@@ -26,6 +31,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from pitchtrack import codec
 from pitchtrack.config import database_url
+from pitchtrack.console import (console, problems_table, progress, show,
+                                summary_table)
+from pitchtrack.corpus import ERROR, Problem
 from pitchtrack.repository import Track, count_tracks, replace_all
 
 
@@ -66,20 +74,44 @@ def main(argv=None):
     if args.limit is not None:
         artefacts = artefacts[:args.limit]
     if not artefacts:
-        print(f"no built pitch tracks under {args.artifacts}")
+        console.print(f"[red]no built pitch tracks under {args.artifacts}[/red]")
         return 1
 
     started = time.perf_counter()
-    tracks = [read_track(path) for path in artefacts]
+    tracks = []
+    problems = []
+    with progress() as bar:
+        task = bar.add_task("reading artefacts", total=len(artefacts))
+        for artefact_path in artefacts:
+            try:
+                tracks.append(read_track(artefact_path))
+            except Exception as error:
+                problems.append(Problem(artefact_path.stem, "artefact", ERROR,
+                                        f"{type(error).__name__}: {error}"))
+            bar.advance(task)
+
+    if problems:
+        show(problems_table(problems,
+                            title=f"{len(problems)} artefacts could not be read"))
+        console.print(f"[red]nothing was loaded[/red] — rebuild "
+                      f"{args.artifacts} with --force, the table was not touched")
+        return 1
+
     total_bytes = sum(len(track.pitch_track) for track in tracks)
-    print(f"read {len(tracks)} recordings, "
-          f"{total_bytes / 1024:,.1f} KiB of pitch tracks")
+    show(summary_table([("artefacts read", f"{len(tracks):,}"),
+                        ("pitch tracks", f"{total_bytes / 1024:,.1f} KiB"),
+                        ("seconds spent reading", f"{time.perf_counter() - started:,.1f}")],
+                       title="reading"))
 
     connection_url = database_url()
-    written = replace_all(tracks, connection_url)
-    stored = count_tracks(connection_url)
-    print(f"wrote {written} rows in {time.perf_counter() - started:,.1f}s; "
-          f"the table now holds {stored}")
+    with console.status("storing rows in the tracks table"):
+        written = replace_all(tracks, connection_url)
+        stored = count_tracks(connection_url)
+
+    show(summary_table([("rows written", f"{written:,}"),
+                        ("rows in the table", f"{stored:,}"),
+                        ("seconds storing", f"{time.perf_counter() - started:,.1f}")],
+                       title="tracks"))
     return 0 if stored == len(tracks) else 1
 
 

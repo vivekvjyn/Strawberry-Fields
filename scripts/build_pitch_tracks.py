@@ -1,8 +1,12 @@
 """Build the stored pitch track of every recording of a corpus.
 
-    python scripts/build_pitch_tracks.py --dataset data/saraga --artifacts artifacts
+    python scripts/build_pitch_tracks.py your_data --artifacts artifacts
 
-Every recording goes through the same four steps:
+The corpus is verified first, under a progress bar and with the findings printed as a
+table, and nothing is built when a song folder fails that check — a broken copy is
+found in one run rather than one fault per run.
+
+Every recording then goes through the same four steps:
 
 1. :func:`pitchtrack.phrases.extract_pitch` tracks the predominant pitch out of the
    audio, and caches it under ``<artifacts>/pitch`` so a re-run starts past the slow
@@ -17,7 +21,8 @@ Every recording goes through the same four steps:
 A recording whose artefact already exists is skipped, so an interrupted sweep resumes
 where it stopped; ``--force`` rebuilds it from the audio instead.
 
-Exit status is 0 when every recording was built, 1 when any of them failed.
+Exit status is 0 when every recording was built, 1 when any of them failed or the
+corpus itself did not pass verification.
 """
 
 import argparse
@@ -27,14 +32,15 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
-from tqdm import tqdm
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from pitchtrack import codec, contour, phrases
-from pitchtrack.corpus import scan_recordings
+from pitchtrack.console import (check_corpus, console, problems_table, progress, show,
+                                summary_table)
+from pitchtrack.corpus import ERROR, Problem, scan_recordings
 
 MIN_VOICED_FRACTION = 0.05
 
@@ -99,23 +105,41 @@ def build_recording(recording, artifacts_root, force=False):
     }
 
 
-def _report(results):
-    """Print what the sweep did, and return the number of recordings that failed."""
+def _report(results, target=console):
+    """Lay what the sweep measured out as a table, and count what failed.
+
+    :param results: One row per recording attempted, built, skipped or failed.
+    :type results: list[dict]
+    :param target: Console to print the tables on.
+    :type target: rich.console.Console
+    :return: The number of recordings that failed.
+    :rtype: int
+    """
     built = [row for row in results if row["outcome"] == "built"]
     skipped = [row for row in results if row["outcome"] == "skipped"]
     failed = [row for row in results if row["outcome"] == "failed"]
 
-    print(f"built {len(built)}, skipped {len(skipped)}, failed {len(failed)}")
+    rows = [("built", f"{len(built):,}"),
+            ("skipped, artefact already built", f"{len(skipped):,}"),
+            ("failed", f"{len(failed):,}")]
     if built:
-        total_bytes = sum(row["bytes"] for row in built)
-        print(f"frames {sum(row['frames'] for row in built):,} "
-              f"packed to {total_bytes / 1024:,.1f} KiB "
-              f"({total_bytes / sum(row['frames'] for row in built):.2f} bytes a frame)")
-        print(f"voiced {np.mean([row['voiced'] for row in built]):.1%}, "
-              f"kept after phrase removal "
-              f"{np.mean([row['kept'] for row in built]):.1%}")
-    for row in failed:
-        print(f"  {row['identifier']}: {row['error']}")
+        frames = sum(row["frames"] for row in built)
+        packed = sum(row["bytes"] for row in built)
+        rows += [
+            ("frames of contour", f"{frames:,}"),
+            ("packed pitch tracks", f"{packed / 1024:,.1f} KiB"),
+            ("bytes a frame", f"{packed / frames:.2f}"),
+            ("voiced", f"{np.mean([row['voiced'] for row in built]):.1%}"),
+            ("kept after phrase removal",
+             f"{np.mean([row['kept'] for row in built]):.1%}"),
+            ("seconds spent", f"{sum(row['seconds'] for row in results):,.1f}"),
+        ]
+    show(summary_table(rows, title="build"), target=target)
+    if failed:
+        show(problems_table([Problem(row["identifier"], "build", ERROR, row["error"])
+                             for row in failed],
+                            title=f"{len(failed)} recordings failed"),
+             target=target)
     return len(failed)
 
 
@@ -129,8 +153,8 @@ def main(argv=None):
     """
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--dataset", default="data/saraga",
-                        help="corpus directory, one subdirectory per recording")
+    parser.add_argument("data", help="corpus folder: one subdirectory per song, "
+                                     "each holding audio.mp3 and metadata.json")
     parser.add_argument("--artifacts", default="artifacts",
                         help="directory to write the built pitch tracks into")
     parser.add_argument("--jobs", type=int, default=1,
@@ -141,31 +165,54 @@ def main(argv=None):
                         help="rebuild recordings whose artefact already exists")
     args = parser.parse_args(argv)
 
-    recordings = scan_recordings(args.dataset)
+    songs, problems = check_corpus(args.data)
+    if any(problem.severity == ERROR for problem in problems):
+        console.print(f"[red]nothing was built[/red] — fix the problems in "
+                      f"{args.data} and run this again")
+        return 1
+
+    recordings = scan_recordings(args.data)
     if args.limit is not None:
         recordings = recordings[:args.limit]
+    console.print(f"building {len(recordings)} of {songs} recordings from {args.data}")
 
     results = []
-    if args.jobs <= 1:
-        for recording in tqdm(recordings, desc="building"):
-            results.append(_build_safely(recording, args.artifacts, args.force))
-    else:
-        with ProcessPoolExecutor(max_workers=args.jobs) as pool:
-            futures = {pool.submit(build_recording, recording, args.artifacts, args.force):
-                       recording for recording in recordings}
-            for future in tqdm(as_completed(futures), total=len(futures), desc="building"):
-                recording = futures[future]
-                try:
-                    results.append(future.result())
-                except Exception as error:
-                    results.append({"identifier": recording.identifier, "outcome": "failed",
-                                    "error": f"{type(error).__name__}: {error}"})
+    with progress() as bar:
+        task = bar.add_task("building", total=len(recordings))
+        if args.jobs <= 1:
+            for recording in recordings:
+                results.append(_build_safely(recording, args.artifacts, args.force))
+                bar.advance(task)
+        else:
+            with ProcessPoolExecutor(max_workers=args.jobs) as pool:
+                futures = {pool.submit(build_recording, recording, args.artifacts,
+                                       args.force): recording
+                           for recording in recordings}
+                for future in as_completed(futures):
+                    recording = futures[future]
+                    try:
+                        results.append(future.result())
+                    except Exception as error:
+                        results.append({"identifier": recording.identifier,
+                                        "outcome": "failed",
+                                        "error": f"{type(error).__name__}: {error}"})
+                    bar.advance(task)
 
     return 1 if _report(results) else 0
 
 
 def _build_safely(recording, artifacts_root, force):
-    """Build one recording, turning a failure into a result the summary can print."""
+    """Build one recording, turning a failure into a result the summary can print.
+
+    :param recording: The recording to build.
+    :type recording: pitchtrack.corpus.Recording
+    :param artifacts_root: Directory the artefacts and the pitch cache live in.
+    :type artifacts_root: str or pathlib.Path
+    :param force: Rebuild an artefact that already exists instead of skipping it.
+    :type force: bool
+    :return: What the build measured, or why it could not.
+    :rtype: dict
+    """
     try:
         return build_recording(recording, artifacts_root, force)
     except Exception as error:

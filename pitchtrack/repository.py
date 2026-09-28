@@ -5,10 +5,10 @@ track packed by :mod:`pitchtrack.codec` into the ``pitch_track`` column. Nothing
 is stored with it — the frame spacing travels inside the packed blob, and the corpus's
 own folder name stays outside the database.
 
-The table is emptied before every load rather than upserted into, because the corpus
-identifies its recordings by folder name while the table has no column for one: ten
-different *Thillana*s share a title, and reloading has to replace the whole corpus
-rather than guess which of them a row belongs to.
+The table is emptied before every load rather than upserted into, because recordings
+are identified by folder name while the table has no column for one, and several songs
+can share a title: a load replaces the whole corpus instead of guessing which of them
+a row belongs to.
 """
 
 from dataclasses import dataclass

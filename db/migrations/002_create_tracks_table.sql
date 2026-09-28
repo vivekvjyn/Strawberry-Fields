@@ -6,10 +6,4 @@ CREATE TABLE IF NOT EXISTS tracks (
     pitch_track BYTEA NOT NULL
 );
 
-DO $$
-BEGIN
-    IF current_setting('server_version_num')::int >= 140000 THEN
-        EXECUTE 'ALTER TABLE tracks ALTER COLUMN pitch_track SET COMPRESSION NONE';
-    END IF;
-END
-$$;
+ALTER TABLE tracks ALTER COLUMN pitch_track SET STORAGE EXTERNAL;
