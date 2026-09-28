@@ -1,0 +1,16 @@
+data/
+artifacts/
+.env
+__pycache__/
+*.pyc
+*.pyo
+.cache
+.ipynb_checkpoints/
+*.npz
+*.mp3
+*.wav
+*.zip
+venv/
+build/
+dist/
+*.egg-info/
