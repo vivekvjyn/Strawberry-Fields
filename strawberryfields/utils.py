@@ -237,24 +237,6 @@ def to_pitch_class_profile(contour, n_classes, sigma_cents=0.0):
     return image
 
 
-def pitch_class_profile_from_audio(y, sr, pitch_config):
-    """Turn a waveform straight into a pitch-class salience profile.
-
-    :param y: Mono waveform.
-    :type y: numpy.ndarray
-    :param sr: Sampling rate of ``y`` in Hz.
-    :type sr: int
-    :param pitch_config: Settings with the keys ``fmin``, ``fmax``, ``frame_length``,
-        ``analysis_hop_seconds``, ``hop_seconds``, ``ref_hz``, ``n_classes`` and
-        ``sigma_cents``.
-    :type pitch_config: dict
-    :return: Profile of shape ``(n_classes, frames)``.
-    :rtype: numpy.ndarray
-    """
-    cents = contour_from_audio(y, sr, pitch_config)
-    return to_pitch_class_profile(cents, pitch_config["n_classes"], pitch_config["sigma_cents"])
-
-
 def subsequence_cost(query, reference, metric="euclidean"):
     """Compute the subsequence-DTW cost of matching a query inside a reference.
 
@@ -315,7 +297,7 @@ def best_match(query_profile, tracks, pitch_config):
     compares.
 
     :param query_profile: Profile of the query, as returned by
-        :func:`pitch_class_profile_from_audio`.
+        :func:`to_pitch_class_profile`.
     :type query_profile: numpy.ndarray
     :param tracks: Track ids paired with their pitch contours in cents.
     :type tracks: collections.abc.Iterable[tuple[int, numpy.ndarray]]

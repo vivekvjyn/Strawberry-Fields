@@ -50,10 +50,13 @@ def search():
     if len(y) < sr:
         return render_template("results.html", track=None)
 
-    query_profile = utils.pitch_class_profile_from_audio(y, sr, current_app.config["PITCH"])
+    pitch_config = current_app.config["PITCH"]
+    cents = utils.contour_from_audio(y, sr, pitch_config)
+    query_profile = utils.to_pitch_class_profile(
+        cents, pitch_config["n_classes"], pitch_config["sigma_cents"])
 
     contours = utils.get_track_contours(current_app.config["DATABASE_URL"])
-    best_id, _ = utils.best_match(query_profile, contours, current_app.config["PITCH"])
+    best_id, _ = utils.best_match(query_profile, contours, pitch_config)
 
     conn = psycopg2.connect(current_app.config["DATABASE_URL"])
     try:
