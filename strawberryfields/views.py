@@ -27,7 +27,8 @@ def search():
     """Match an uploaded recording against the stored catalogue.
 
     The posted audio is decoded, turned into a pitch-class profile and compared
-    against every stored contour; the metadata of the best match is printed as a
+    against the stored contours as they are read from the database one row at a
+    time; the metadata of the best match is printed as a
     table. A request carrying no audio, audio that fails to decode, or audio
     shorter than a second renders the results page with no track.
 

@@ -9,44 +9,40 @@ from strawberryfields.dtw import dtw
 from strawberryfields.pyin import pyin
 
 
-_track_cache = None
 _profile_cache = {}
 
 
 def get_track_contours(database_url):
-    """Get every track's stored pitch contour, loading and caching them once.
+    """Yield every track's stored pitch contour, one row at a time.
 
-    The reference tracks don't change at runtime, so the first call downloads
-    every ``(id, pitch_track)`` pair from the database, unpacks each stored blob
-    with :func:`strawberryfields.codec.decode_contour` and keeps the contours in
-    memory; later calls just return the cached list instead of re-querying.
+    The table is never pulled down whole: each row is fetched on its own, unpacked
+    with :func:`strawberryfields.codec.decode_contour` and yielded, so only one
+    stored blob is in memory at a time.
 
     :param database_url: Connection string for the app database.
     :type database_url: str
-    :return: Track ids paired with their pitch contours in cents.
-    :rtype: list[tuple[int, numpy.ndarray]]
+    :return: Track ids paired with their pitch contours in cents, one row at a time.
+    :rtype: collections.abc.Iterator[tuple[int, numpy.ndarray]]
     """
-    global _track_cache
-    if _track_cache is not None:
-        return _track_cache
-
     attempts = 5
     for attempt in range(1, attempts + 1):
-        conn = psycopg2.connect(database_url)
         try:
-            with conn.cursor(name="contours") as cur:
-                cur.itersize = 50
-                cur.execute("SELECT id, pitch_track FROM tracks")
-                rows = list(cur)
+            conn = psycopg2.connect(database_url)
             break
         except psycopg2.OperationalError:
             if attempt == attempts:
                 raise
-        finally:
-            conn.close()
-
-    _track_cache = [(track_id, codec.decode_contour(bytes(blob))[0]) for track_id, blob in rows]
-    return _track_cache
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, pitch_track FROM tracks")
+            while True:
+                row = cur.fetchone()
+                if row is None:
+                    break
+                track_id, blob = row
+                yield track_id, codec.decode_contour(bytes(blob))[0]
+    finally:
+        conn.close()
 
 
 def load_audio(path):
@@ -229,8 +225,9 @@ def best_match(query_profile, tracks, pitch_config):
     :param query_profile: Profile of the query, as returned by
         :func:`pitch_class_profile`.
     :type query_profile: numpy.ndarray
-    :param tracks: Track ids paired with their pitch contours in cents.
-    :type tracks: collections.abc.Iterable[tuple[int, numpy.ndarray]]
+    :param tracks: Track ids paired with their pitch contours in cents, fetched one
+        row at a time by :func:`get_track_contours`.
+    :type tracks: collections.abc.Iterator[tuple[int, numpy.ndarray]]
     :param pitch_config: Settings with the keys ``n_classes``, ``sigma_cents`` and
         ``shift_step``.
     :type pitch_config: dict
@@ -238,12 +235,11 @@ def best_match(query_profile, tracks, pitch_config):
         10 lowest-cost ``(track_id, cost)`` pairs, best first.
     :rtype: tuple[int or None, list[tuple[int, float]]]
     """
-    tracks = list(tracks)
     best_id, best_cost = None, np.inf
     results = []
 
     with Progress() as progress:
-        task = progress.add_task("Searching tracks...", total=len(tracks))
+        task = progress.add_task("Searching tracks...")
         for track_id, contour in tracks:
             if len(contour) == 0:
                 progress.advance(task)
