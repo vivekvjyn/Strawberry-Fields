@@ -1,14 +1,20 @@
 # Strawberry Fields
 
-Query-by-humming for Indian art music. Hum a melody into your microphone and find
-the matching piece, searched against the pitch tracks and metadata of a corpus.
-Each match returns:
+Query-by-humming for Indian art music. This branch holds the project's Jupyter
+notebooks: pitch tracks come out of the audio in `notebooks/data/`, phrases are
+searched against them, and the pitch-track format is demonstrated end to end.
 
-| Field | Description |
+## Layout
+
+| Path | Contents |
 |---|---|
-| Title | name of the piece |
-| *Rāga* | melodic framework it is set in |
-| *Tāla* | metrical cycle |
+| `notebooks/compression.ipynb` | packs an example pitch contour and unpacks it again, stage by stage |
+| `notebooks/prepare.ipynb` | isolates vocals and extracts pYIN pitch tracks |
+| `notebooks/evaluate.ipynb` | retrieval evaluation |
+| `notebooks/similar_phrases.ipynb` | similar-phrase search |
+| `notebooks/data/` | audio and the query index |
+| `notebooks/helpers/` | shared notebook utilities |
+| `src/` | the pitch-track codec — `numpy` and `zlib` only — imported by the notebooks |
 
 ## Setup
 
@@ -16,24 +22,7 @@ Each match returns:
 git clone https://github.com/vivekvjyn/strawberry-fields.git
 cd strawberry-fields
 pip install -r requirements.txt
-python setup.py build_ext --inplace
-```
-
-Credentials go in `.env`:
-
-```makefile
-DB_HOST=your_host
-DB_NAME=your_database
-DB_USER=your_username
-DB_PASSWORD=your_password
-DB_PORT=your_port
-SECRET_KEY=your_secret_key
-```
-
-## Running
-
-```bash
-python wsgi.py
+jupyter notebook notebooks/
 ```
 
 ## Licence

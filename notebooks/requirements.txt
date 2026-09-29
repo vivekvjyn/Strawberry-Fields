@@ -5,6 +5,7 @@ librosa
 matplotlib
 numpy
 pandas
+protobuf
 requests
 scipy
 soundfile

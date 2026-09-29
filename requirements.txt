@@ -1,12 +1,1 @@
-flask
-flask-cors
-gunicorn
-python-dotenv
-psycopg2-binary
-numpy
-scipy
-librosa
-soundfile
-cython
-setuptools
-rich
+-r notebooks/requirements.txt
