@@ -35,13 +35,15 @@ The payload is read back in the order the writer applied the algorithms:
 
 1. :func:`zlib.decompress` inflates the stream — the same call the writer packed it
    with;
-2. the seven-bit groups are reassembled into values and the zigzag fold comes off,
-   giving one difference per frame;
+2. protobuf's original wire format takes it apart — :func:`google.protobuf.internal.decoder._DecodeVarint`
+   reassembles the seven-bit groups and :func:`google.protobuf.internal.wire_format.ZigZagDecode`
+   takes the zigzag fold off, giving one difference per frame;
 3. the differences are summed modulo ``2**16``, which restores the whole cents;
 4. :func:`dequantise`, the helper in this module, turns whole cents into a contour.
 
-Nothing but the standard library and :mod:`numpy` is involved, so a contour packed by
-the writer and a contour read here describe exactly the same values.
+Nothing but the standard library, :mod:`numpy` and protobuf's own wire format is
+involved, so a contour packed by the writer and a contour read here describe exactly
+the same values.
 
 :func:`decode_contour` is what the application calls on every row of ``tracks``.
 
@@ -51,6 +53,8 @@ import struct
 import zlib
 
 import numpy as np
+from google.protobuf.internal.decoder import _DecodeError, _DecodeVarint
+from google.protobuf.internal.wire_format import ZigZagDecode
 
 __all__ = [
     "MAGIC",
@@ -152,8 +156,11 @@ def decode_contour(blob):
 def _decode_varints(data, frames):
     """Read a stream of seven-bit groups back as the differences it holds.
 
-    The zigzag fold comes off here too: each value is turned back into its signed
-    form and wrapped to sixteen bits, which is how the writer stored it.
+    Both steps are protobuf's own originals, the wire format the writer folded and
+    packed with: :func:`google.protobuf.internal.decoder._DecodeVarint` reassembles
+    one group at a time and :func:`google.protobuf.internal.wire_format.ZigZagDecode`
+    takes the zigzag fold back off, the value then wrapped to sixteen bits as the
+    writer stored it.
 
     :param data: The inflated payload.
     :type data: bytes
@@ -167,20 +174,13 @@ def _decode_varints(data, frames):
     differences = np.empty(frames, dtype=np.uint16)
     position = 0
     for index in range(frames):
-        value, shift = 0, 0
-        while True:
-            if position >= len(data):
-                raise ValueError(f"packed pitch track ends after {index} of {frames} frames")
-            byte = data[position]
-            position += 1
-            value |= (byte & 0x7F) << shift
-            if not byte & 0x80:
-                break
-            shift += 7
-            if shift > 63:
-                raise ValueError("packed pitch track holds an oversized integer")
-        signed = (value >> 1) ^ -(value & 1)
-        differences[index] = signed & (_MODULUS - 1)
+        try:
+            value, position = _DecodeVarint(data, position)
+        except IndexError:
+            raise ValueError(f"packed pitch track ends after {index} of {frames} frames") from None
+        except _DecodeError:
+            raise ValueError("packed pitch track holds an oversized integer") from None
+        differences[index] = ZigZagDecode(value) & (_MODULUS - 1)
 
     if position != len(data):
         raise ValueError(f"packed pitch track holds {len(data) - position} "
