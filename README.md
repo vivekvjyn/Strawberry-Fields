@@ -16,7 +16,6 @@ Each match returns:
 git clone https://github.com/vivekvjyn/strawberry-fields.git
 cd strawberry-fields
 pip install -r requirements.txt
-python setup.py build_ext --inplace
 ```
 
 Credentials go in `.env`:

@@ -5,8 +5,6 @@ from rich.progress import Progress
 from scipy.ndimage import gaussian_filter1d
 
 from strawberryfields import codec
-from strawberryfields.dtw import dtw
-from strawberryfields.pyin import pyin
 
 
 _track_cache = None
@@ -81,7 +79,7 @@ def extract_f0(y, sr, fmin, fmax, frame_length, hop_length):
     :return: Frame times in seconds and the f0 value of each frame in Hz.
     :rtype: tuple[numpy.ndarray, numpy.ndarray]
     """
-    f0, voiced_flag, _ = pyin(
+    f0, voiced_flag, _ = librosa.pyin(
         y, fmin=fmin, fmax=fmax, sr=sr,
         frame_length=frame_length, hop_length=hop_length,
     )
@@ -262,12 +260,12 @@ def subsequence_cost(query, reference, metric="euclidean"):
     :type query: numpy.ndarray
     :param reference: Reference representation, shape ``(features, frames)``.
     :type reference: numpy.ndarray
-    :param metric: Distance metric passed to :func:`strawberryfields.dtw.dtw`.
+    :param metric: Distance metric passed to :func:`librosa.sequence.dtw`.
     :type metric: str
     :return: DTW cost normalised by the shorter of the two lengths.
     :rtype: float
     """
-    D = dtw(X=query, Y=reference, metric=metric, subseq=True, backtrack=False)
+    D = librosa.sequence.dtw(X=query, Y=reference, metric=metric, subseq=True, backtrack=False)
     return D[-1, :].min() / min(query.shape[1], reference.shape[1])
 
 
