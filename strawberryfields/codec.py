@@ -31,15 +31,17 @@ marking the frames that carry no pitch. The blob begins with a thirteen-byte hea
      - deflate stream of the delta-coded samples: variable-length integers from
        version 2, sixteen-bit words from version 1
 
-The payload is read back in the order the writer applied the algorithms, the first one
-from :mod:`zlib` — the same call the writer packed it with — and the rest from the
-modules beside this file:
+The payload is read back in the order the writer applied the algorithms:
 
-1. :mod:`zlib` inflates the stream;
-2. :mod:`strawberryfields.varint` turns seven-bit groups into differences;
-3. :mod:`strawberryfields.zigzag` folds the sign back out;
-4. :mod:`strawberryfields.delta` sums the differences into whole cents;
-5. :func:`dequantise`, the helper in this module, turns whole cents into a contour.
+1. :func:`zlib.decompress` inflates the stream — the same call the writer packed it
+   with;
+2. the seven-bit groups are reassembled into values and the zigzag fold comes off,
+   giving one difference per frame;
+3. the differences are summed modulo ``2**16``, which restores the whole cents;
+4. :func:`dequantise`, the helper in this module, turns whole cents into a contour.
+
+Nothing but the standard library and :mod:`numpy` is involved, so a contour packed by
+the writer and a contour read here describe exactly the same values.
 
 :func:`decode_contour` is what the application calls on every row of ``tracks``.
 
@@ -49,8 +51,6 @@ import struct
 import zlib
 
 import numpy as np
-
-from strawberryfields import delta, varint, zigzag
 
 __all__ = [
     "MAGIC",
@@ -72,6 +72,8 @@ SUPPORTED_VERSIONS = (1, 2)
 UNVOICED = -32768
 
 HEADER = struct.Struct("<4sBII")
+
+_MODULUS = 1 << 16
 
 
 def quantise(contour):
@@ -135,14 +137,69 @@ def decode_contour(blob):
     except zlib.error as error:
         raise ValueError(f"packed pitch track payload does not inflate: {error}") from error
 
-    if version == 2:
-        differences = zigzag.decode(varint.decode(payload, frames))
-    else:
-        differences = varint.decode_words(payload, frames)
+    differences = (_decode_varints(payload, frames) if version == 2
+                   else _decode_words(payload, frames))
     if differences.size != frames:
         raise ValueError(f"packed pitch track holds {differences.size} frames, "
                          f"header says {frames}")
 
-    samples = delta.cumulate(differences)
+    samples = np.cumsum(differences, dtype=np.uint64) % _MODULUS
+    samples = samples.astype(np.uint16).view(np.int16)
     values = dequantise(samples)
     return values, hop_microseconds / 1e6
+
+
+def _decode_varints(data, frames):
+    """Read a stream of seven-bit groups back as the differences it holds.
+
+    The zigzag fold comes off here too: each value is turned back into its signed
+    form and wrapped to sixteen bits, which is how the writer stored it.
+
+    :param data: The inflated payload.
+    :type data: bytes
+    :param frames: How many values the header promises.
+    :type frames: int
+    :return: One difference per frame, wrapped to sixteen bits.
+    :rtype: numpy.ndarray
+    :raises ValueError: if the payload is truncated, malformed, or longer than the
+        frame count asks for.
+    """
+    differences = np.empty(frames, dtype=np.uint16)
+    position = 0
+    for index in range(frames):
+        value, shift = 0, 0
+        while True:
+            if position >= len(data):
+                raise ValueError(f"packed pitch track ends after {index} of {frames} frames")
+            byte = data[position]
+            position += 1
+            value |= (byte & 0x7F) << shift
+            if not byte & 0x80:
+                break
+            shift += 7
+            if shift > 63:
+                raise ValueError("packed pitch track holds an oversized integer")
+        signed = (value >> 1) ^ -(value & 1)
+        differences[index] = signed & (_MODULUS - 1)
+
+    if position != len(data):
+        raise ValueError(f"packed pitch track holds {len(data) - position} "
+                         f"trailing payload bytes")
+    return differences
+
+
+def _decode_words(payload, frames):
+    """Read the sixteen-bit differences of the version 1 layout.
+
+    :param payload: The inflated payload.
+    :type payload: bytes
+    :param frames: How many values the header promises.
+    :type frames: int
+    :return: One difference per frame.
+    :rtype: numpy.ndarray
+    :raises ValueError: if the payload is not a whole number of sixteen-bit words.
+    """
+    if len(payload) % np.dtype(np.uint16).itemsize:
+        raise ValueError(f"packed pitch track payload of {len(payload)} bytes "
+                         f"is not a whole number of sixteen-bit differences")
+    return np.frombuffer(payload, dtype=np.uint16)
