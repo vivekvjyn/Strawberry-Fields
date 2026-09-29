@@ -140,68 +140,6 @@ def resample_uniform(times, values, hop_seconds, duration=None):
     return grid, resampled
 
 
-def fill_gaps(contour):
-    """Fill ``nan`` gaps in a contour by linear interpolation.
-
-    Leading and trailing gaps take the nearest valid value; a contour with no
-    valid values becomes all zeros.
-
-    :param contour: Pitch contour with ``nan`` for missing values.
-    :type contour: numpy.ndarray
-    :return: The contour with no ``nan`` values.
-    :rtype: numpy.ndarray
-    """
-    contour = np.asarray(contour, dtype=np.float64)
-    idx = np.arange(len(contour))
-    voiced = ~np.isnan(contour)
-    if voiced.sum() == 0:
-        return np.zeros_like(contour)
-    if voiced.sum() < 2:
-        return np.full_like(contour, contour[voiced][0])
-    return np.interp(idx, idx[voiced], contour[voiced])
-
-
-def center(contour):
-    """Subtract the median so that the contour is independent of the singer's key.
-
-    :param contour: Pitch contour in cents.
-    :type contour: numpy.ndarray
-    :return: The median-centred contour.
-    :rtype: numpy.ndarray
-    """
-    contour = np.asarray(contour, dtype=np.float64)
-    finite = contour[np.isfinite(contour)]
-    if finite.size == 0:
-        return contour
-    return contour - np.median(finite)
-
-
-def contour_from_audio(y, sr, pitch_config):
-    """Turn a waveform into an un-normalised pitch contour in cents on a uniform time grid.
-
-    Unvoiced gaps are kept as ``nan`` (not interpolated), since
-    :func:`to_pitch_class_profile` needs them to render all-zero columns.
-
-    :param y: Mono waveform.
-    :type y: numpy.ndarray
-    :param sr: Sampling rate of ``y`` in Hz.
-    :type sr: int
-    :param pitch_config: Settings with the keys ``fmin``, ``fmax``, ``frame_length``,
-        ``analysis_hop_seconds``, ``hop_seconds`` and ``ref_hz``.
-    :type pitch_config: dict
-    :return: Pitch contour in cents, ``nan`` where unvoiced, one value per ``hop_seconds``.
-    :rtype: numpy.ndarray
-    """
-    times, f0 = extract_f0(
-        y, sr, pitch_config["fmin"], pitch_config["fmax"], pitch_config["frame_length"],
-        hop_length=round(pitch_config["analysis_hop_seconds"] * sr),
-    )
-    cents = hz_to_cents(f0, pitch_config["ref_hz"])
-    duration = len(y) / sr
-    _, cents = resample_uniform(times, cents, pitch_config["hop_seconds"], duration=duration)
-    return cents
-
-
 def pitch_class_profile(contour, n_classes, sigma_cents=0.0):
     """Fold a cents contour into an octave-invariant pitch-class salience profile.
 
