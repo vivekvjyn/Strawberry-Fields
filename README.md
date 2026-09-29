@@ -1,4 +1,4 @@
-# Strawberry Fieldsdatabase
+# Strawberry Fields database
 
 Scripts for setting up the [Strawberry Fields](https://github.com/vivekvjyn/Strawberry-Fields)
 database:
@@ -14,14 +14,14 @@ database:
 
 ```mermaid
 flowchart TD
-    Data[/"your_data"/]
-    Validate{"format validation"}
-    Stop([stop])
-    Extract["pYIN"]
-    Dedupe["Self similarity score"]
-    Quantise["Quantisation"]
-    Compress["Compression"]
-    Database[("database")]
+    Data[/"your_data"/]:::data
+    Validate{"format validation"}:::check
+    Stop([stop]):::stop
+    Extract["pYIN"]:::pyin
+    Dedupe["Self similarity score"]:::similarity
+    Quantise["Quantisation"]:::quantise
+    Compress["Compression"]:::compress
+    Database[("database")]:::store
 
     Data --> Validate
     Validate -->|errors| Stop
@@ -30,6 +30,15 @@ flowchart TD
     Dedupe --> |Phrase deduplicated signal| Quantise
     Quantise --> |Quantized signal| Compress
     Compress --> |Compressed signal| Database
+
+    classDef data fill:#4a3524,stroke:#d9a066,color:#f0e3d3
+    classDef check fill:#1e3a30,stroke:#4e9e7a,color:#d6efe3
+    classDef stop fill:#3d1e2d,stroke:#d05a86,color:#f4cede
+    classDef pyin fill:#3e421a,stroke:#c9d13b,color:#eef2c2
+    classDef similarity fill:#2d2440,stroke:#9b6dd6,color:#e7dbf7
+    classDef quantise fill:#453312,stroke:#d99a2b,color:#f6e4bf
+    classDef compress fill:#123a3a,stroke:#2fb3ad,color:#cfedec
+    classDef store fill:#3f1a1e,stroke:#d05a5a,color:#f6d2d2
 ```
 
 ## Setup
