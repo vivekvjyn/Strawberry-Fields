@@ -4,6 +4,7 @@ import psycopg2
 from rich.progress import Progress
 from scipy.ndimage import gaussian_filter1d
 
+from strawberryfields import codec
 from strawberryfields.dtw import dtw
 from strawberryfields.pyin import pyin
 
@@ -16,8 +17,9 @@ def get_track_contours(database_url):
     """Get every track's stored pitch contour, loading and caching them once.
 
     The reference tracks don't change at runtime, so the first call downloads
-    every ``(id, pitch_cents)`` pair from the database and keeps it in memory;
-    later calls just return the cached list instead of re-querying.
+    every ``(id, pitch_track)`` pair from the database, unpacks each stored blob
+    with :func:`strawberryfields.codec.decode_contour` and keeps the contours in
+    memory; later calls just return the cached list instead of re-querying.
 
     :param database_url: Connection string for the app database.
     :type database_url: str
@@ -34,7 +36,7 @@ def get_track_contours(database_url):
         try:
             with conn.cursor(name="contours") as cur:
                 cur.itersize = 50
-                cur.execute("SELECT id, pitch_cents FROM tracks")
+                cur.execute("SELECT id, pitch_track FROM tracks")
                 rows = list(cur)
             break
         except psycopg2.OperationalError:
@@ -43,7 +45,7 @@ def get_track_contours(database_url):
         finally:
             conn.close()
 
-    _track_cache = [(track_id, np.asarray(contour, dtype=np.float64)) for track_id, contour in rows]
+    _track_cache = [(track_id, codec.decode_contour(bytes(blob))[0]) for track_id, blob in rows]
     return _track_cache
 
 

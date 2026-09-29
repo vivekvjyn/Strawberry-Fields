@@ -46,7 +46,7 @@ def search():
         if best_id is not None:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
-                    "SELECT title, raag, taal, laya, form FROM tracks WHERE id = %s",
+                    "SELECT title, raga, tala FROM tracks WHERE id = %s",
                     (best_id,),
                 )
                 track = cur.fetchone()
@@ -56,10 +56,8 @@ def search():
                 table.add_column("Field", style="bold cyan")
                 table.add_column("Value")
                 table.add_row("Title", track["title"] or "")
-                table.add_row("Raag", track["raag"] or "")
-                table.add_row("Taal", track["taal"] or "")
-                table.add_row("Laya", track["laya"] or "")
-                table.add_row("Form", track["form"] or "")
+                table.add_row("Raga", track["raga"] or "")
+                table.add_row("Tala", track["tala"] or "")
                 Console().print(table)
     finally:
         conn.close()
