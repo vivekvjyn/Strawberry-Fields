@@ -202,7 +202,7 @@ def contour_from_audio(y, sr, pitch_config):
     return cents
 
 
-def to_pitch_class_profile(contour, n_classes, sigma_cents=0.0):
+def pitch_class_profile(contour, n_classes, sigma_cents=0.0):
     """Fold a cents contour into an octave-invariant pitch-class salience profile.
 
     Every pitch is reduced mod 1200 cents (its position within an octave, regardless
@@ -210,7 +210,7 @@ def to_pitch_class_profile(contour, n_classes, sigma_cents=0.0):
     pitch-class bin and 0 elsewhere, blurred along the pitch-class axis with a
     Gaussian that wraps around the octave (0 and 1200 cents are the same point).
     Because pitch class is octave-invariant by construction, matching against several
-    circular shifts of this profile (see :func:`transposed_subsequence_cost`) covers
+    circular shifts of this profile (see :func:`dtw_cost`) covers
     a range of tonic differences with plain, un-windowed subsequence DTW -- no
     per-window re-centring is needed, and ordinary DTW warping absorbs tempo
     differences on its own.
@@ -237,41 +237,26 @@ def to_pitch_class_profile(contour, n_classes, sigma_cents=0.0):
     return image
 
 
-def subsequence_cost(query, reference, metric="euclidean"):
-    """Compute the subsequence-DTW cost of matching a query inside a reference.
-
-    :param query: Query representation, shape ``(features, frames)``.
-    :type query: numpy.ndarray
-    :param reference: Reference representation, shape ``(features, frames)``.
-    :type reference: numpy.ndarray
-    :param metric: Distance metric passed to :func:`strawberryfields.dtw.dtw`.
-    :type metric: str
-    :return: DTW cost normalised by the shorter of the two lengths.
-    :rtype: float
-    """
-    D = dtw(X=query, Y=reference, metric=metric, subseq=True, backtrack=False)
-    return D[-1, :].min() / min(query.shape[1], reference.shape[1])
-
-
-def transposed_subsequence_cost(query_profile, reference_profile, n_classes, metric="euclidean", shift_step=1):
-    """Match a query pitch-class profile inside a reference, trying several transpositions.
+def dtw_cost(query_profile, reference_profile, n_classes, metric="euclidean", shift_step=1):
+    """Match a query pitch-class profile inside a reference, over several transpositions.
 
     Circularly shifting a pitch-class profile by one class is exactly a transposition
     by ``1200 / n_classes`` cents. ``shift_step`` trades transposition coverage for
     speed: with ``shift_step=1`` every class shift is tried; with ``shift_step=2``
     only every other one is (semitone steps, if ``n_classes=24``), relying on the
     profile's Gaussian blur to absorb the skipped in-between shifts. Each shift tried
-    is one ordinary, un-windowed subsequence DTW over the whole reference.
+    is one ordinary, un-windowed subsequence DTW over the whole reference: the last
+    row of the accumulated cost matrix is the matching function, normalised by the
+    shorter of the two lengths.
 
-    :param query_profile: Query profile, as returned by :func:`to_pitch_class_profile`.
+    :param query_profile: Query profile, as returned by :func:`pitch_class_profile`.
     :type query_profile: numpy.ndarray
-    :param reference_profile: Reference profile, as returned by
-        :func:`to_pitch_class_profile`.
+    :param reference_profile: Reference profile, as returned by :func:`pitch_class_profile`.
     :type reference_profile: numpy.ndarray
     :param n_classes: Number of pitch classes per octave; must match how both
         profiles were built.
     :type n_classes: int
-    :param metric: Distance metric passed to :func:`subsequence_cost`.
+    :param metric: Distance metric passed to :func:`strawberryfields.dtw.dtw`.
     :type metric: str
     :param shift_step: Try every ``shift_step``-th class shift instead of all of them.
     :type shift_step: int
@@ -280,7 +265,9 @@ def transposed_subsequence_cost(query_profile, reference_profile, n_classes, met
     """
     best = np.inf
     for shift in range(0, n_classes, shift_step):
-        cost = subsequence_cost(query_profile, np.roll(reference_profile, shift, axis=0), metric)
+        shifted = np.roll(reference_profile, shift, axis=0)
+        D = dtw(X=query_profile, Y=shifted, metric=metric, subseq=True, backtrack=False)
+        cost = D[-1, :].min() / min(query_profile.shape[1], reference_profile.shape[1])
         if cost < best:
             best = cost
     return best
@@ -291,13 +278,13 @@ def best_match(query_profile, tracks, pitch_config):
 
     Each track's stored contour is turned into a pitch-class profile the first time
     it's seen and memoised, so across searches every song is profiled exactly once;
-    the profile is compared against the query with :func:`transposed_subsequence_cost`.
+    the profile is compared against the query with :func:`dtw_cost`.
     Memoised profiles are stored as ``float16`` so the whole catalogue fits in a
-    512 MB instance, and :func:`subsequence_cost` upcasts one track at a time as it
+    512 MB instance, and :func:`dtw_cost` upcasts one track at a time as it
     compares.
 
     :param query_profile: Profile of the query, as returned by
-        :func:`to_pitch_class_profile`.
+        :func:`pitch_class_profile`.
     :type query_profile: numpy.ndarray
     :param tracks: Track ids paired with their pitch contours in cents.
     :type tracks: collections.abc.Iterable[tuple[int, numpy.ndarray]]
@@ -320,11 +307,11 @@ def best_match(query_profile, tracks, pitch_config):
                 continue
             track_profile = _profile_cache.get(track_id)
             if track_profile is None:
-                track_profile = to_pitch_class_profile(
+                track_profile = pitch_class_profile(
                     contour, pitch_config["n_classes"], pitch_config["sigma_cents"]).astype(np.float16)
                 _profile_cache[track_id] = track_profile
-            cost = transposed_subsequence_cost(query_profile, track_profile, pitch_config["n_classes"],
-                                               "euclidean", pitch_config["shift_step"])
+            cost = dtw_cost(query_profile, track_profile, pitch_config["n_classes"],
+                            "euclidean", pitch_config["shift_step"])
             results.append((track_id, cost))
             if cost < best_cost:
                 best_id, best_cost = track_id, cost

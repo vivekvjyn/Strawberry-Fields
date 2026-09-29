@@ -52,7 +52,7 @@ def search():
 
     pitch_config = current_app.config["PITCH"]
     cents = utils.contour_from_audio(y, sr, pitch_config)
-    query_profile = utils.to_pitch_class_profile(
+    query_profile = utils.pitch_class_profile(
         cents, pitch_config["n_classes"], pitch_config["sigma_cents"])
 
     contours = utils.get_track_contours(current_app.config["DATABASE_URL"])
