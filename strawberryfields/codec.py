@@ -31,10 +31,11 @@ marking the frames that carry no pitch. The blob begins with a thirteen-byte hea
      - deflate stream of the delta-coded samples: variable-length integers from
        version 2, sixteen-bit words from version 1
 
-The payload is read back in the order the writer applied the algorithms, each one a
-module beside this file:
+The payload is read back in the order the writer applied the algorithms, the first one
+from :mod:`zlib` — the same call the writer packed it with — and the rest from the
+modules beside this file:
 
-1. :mod:`strawberryfields.deflate` inflates the stream;
+1. :mod:`zlib` inflates the stream;
 2. :mod:`strawberryfields.varint` turns seven-bit groups into differences;
 3. :mod:`strawberryfields.zigzag` folds the sign back out;
 4. :mod:`strawberryfields.delta` sums the differences into whole cents;
@@ -45,10 +46,11 @@ module beside this file:
 """
 
 import struct
+import zlib
 
 import numpy as np
 
-from strawberryfields import deflate, delta, varint, zigzag
+from strawberryfields import delta, varint, zigzag
 
 __all__ = [
     "MAGIC",
@@ -128,7 +130,10 @@ def decode_contour(blob):
         raise ValueError(f"packed pitch track version {version}, "
                          f"expected one of {SUPPORTED_VERSIONS}")
 
-    payload = deflate.decompress(blob[HEADER.size:])
+    try:
+        payload = zlib.decompress(blob[HEADER.size:])
+    except zlib.error as error:
+        raise ValueError(f"packed pitch track payload does not inflate: {error}") from error
 
     if version == 2:
         differences = zigzag.decode(varint.decode(payload, frames))
