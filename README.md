@@ -1,20 +1,15 @@
 # Strawberry Fields
 
-Query-by-humming for Indian art music. This branch holds the project's Jupyter
-notebooks: pitch tracks come out of the audio in `notebooks/data/`, phrases are
-searched against them, and the pitch-track format is demonstrated end to end.
+This branch contains Python notebooks demonstrating the QBH pipeline.
 
-## Layout
+## Notebooks
 
-| Path | Contents |
+| Path | Description |
 |---|---|
-| `notebooks/compression.ipynb` | packs an example pitch contour and unpacks it again, stage by stage |
-| `notebooks/prepare.ipynb` | isolates vocals and extracts pYIN pitch tracks |
-| `notebooks/evaluate.ipynb` | retrieval evaluation |
-| `notebooks/similar_phrases.ipynb` | similar-phrase search |
-| `notebooks/data/` | audio and the query index |
-| `notebooks/helpers/` | shared notebook utilities |
-| `src/` | the pitch-track codec — `numpy` and `zlib` only — imported by the notebooks |
+| `notebooks/compression.ipynb` | Packs an example pitch contour and unpacks it again. |
+| `notebooks/prepare.ipynb` | Isolates vocals and extracts pitch tracks from audio. |
+| `notebooks/evaluate.ipynb` | QBH retrieval evaluation |
+| `notebooks/similar_phrases.ipynb` | Similar-phrase search and deduplication. |
 
 ## Setup
 
