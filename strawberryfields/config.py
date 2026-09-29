@@ -1,5 +1,7 @@
 import os
+from pathlib import Path
 
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,12 +32,29 @@ def _database_url():
     return f"postgresql://{user}:{password}@{host}:{port}/{name}"
 
 
+def _pitch_config():
+    """Read the application's pitch settings from ``config.yaml``.
+
+    The file sits at the project root, next to the package, and holds both settings
+    groups: ``app`` is the analysis and matching this application runs on,
+    ``notebook`` the analysis the notebooks pack pitch tracks with, so one file
+    states the settings of both sides.
+
+    :return: The settings of the ``app`` group.
+    :rtype: dict
+    """
+    path = Path(__file__).resolve().parent.parent / "config.yaml"
+    with path.open(encoding="utf-8") as handle:
+        return yaml.safe_load(handle)["app"]
+
+
 class Config:
     """Settings the app is configured from.
 
     ``SECRET_KEY`` and ``DATABASE_URL`` come from the environment, and
     ``MAX_CONTENT_LENGTH`` caps uploads at 25 MB. ``PITCH`` holds the analysis
-    and matching settings: ``analysis_hop_seconds`` is the pYIN hop on the query
+    and matching settings, read from the ``app`` group of ``config.yaml``:
+    ``analysis_hop_seconds`` is the pYIN hop on the query
     audio, ``hop_seconds`` the grid the contour is resampled to, ``n_classes``
     the pitch classes per octave (50 cents each), and ``shift_step`` the class
     shifts tried when matching (2 means every second class, i.e. 12
@@ -46,14 +65,4 @@ class Config:
     DATABASE_URL = _database_url()
     MAX_CONTENT_LENGTH = 25 * 1024 * 1024
 
-    PITCH = {
-        "fmin": 65.0,
-        "fmax": 1046.0,
-        "frame_length": 2048,
-        "analysis_hop_seconds": 0.04,
-        "hop_seconds": 0.2,
-        "ref_hz": 55.0,
-        "n_classes": 24,
-        "sigma_cents": 150,
-        "shift_step": 2,
-    }
+    PITCH = _pitch_config()
