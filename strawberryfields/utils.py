@@ -64,7 +64,7 @@ def load_audio(path):
 def extract_f0(y, sr, fmin, fmax, frame_length, hop_length):
     """Estimate the fundamental frequency of a waveform with pYIN.
 
-    Unvoiced frames are returned as ``0.0`` Hz.
+    Unvoiced frames are ``nan``.
 
     :param y: Mono waveform.
     :type y: numpy.ndarray
@@ -78,15 +78,13 @@ def extract_f0(y, sr, fmin, fmax, frame_length, hop_length):
     :type frame_length: int
     :param hop_length: Number of samples between consecutive frames.
     :type hop_length: int
-    :return: Frame times in seconds and the f0 value of each frame in Hz.
+    :return: Frame times in seconds and the f0 value of each frame in Hz, ``nan`` where unvoiced.
     :rtype: tuple[numpy.ndarray, numpy.ndarray]
     """
-    f0, voiced_flag, _ = pyin(
+    f0, _, _ = pyin(
         y, fmin=fmin, fmax=fmax, sr=sr,
         frame_length=frame_length, hop_length=hop_length,
     )
-    f0 = np.nan_to_num(f0, nan=0.0)
-    f0[~voiced_flag] = 0.0
     times = np.arange(len(f0)) * hop_length / sr
     return times, f0
 
@@ -94,7 +92,7 @@ def extract_f0(y, sr, fmin, fmax, frame_length, hop_length):
 def hz_to_cents(f0, f_ref):
     """Convert frequencies in Hz to cents relative to a reference frequency.
 
-    Non-positive (unvoiced) values become ``nan``.
+    Unvoiced ``nan`` and non-positive values stay ``nan``.
 
     :param f0: Frequencies in Hz.
     :type f0: numpy.ndarray
@@ -113,7 +111,9 @@ def hz_to_cents(f0, f_ref):
 def resample_uniform(times, values, hop_seconds, duration=None):
     """Linearly resample a series onto a uniform time grid, ignoring ``nan`` samples.
 
-    Grid points outside the range of valid samples are ``nan``.
+    Grid points outside the range of valid samples are ``nan``, and so are grid
+    points that fall inside a run of ``nan`` samples: silence is carried through,
+    never interpolated over.
 
     :param times: Sample times in seconds.
     :type times: numpy.ndarray
@@ -137,6 +137,11 @@ def resample_uniform(times, values, hop_seconds, duration=None):
         return grid, np.full_like(grid, np.nan)
 
     resampled = np.interp(grid, times[valid], values[valid], left=np.nan, right=np.nan)
+
+    invalid = (~valid).astype(np.int8)
+    bounds = np.diff(np.concatenate(([0], invalid, [0])))
+    for start, stop in zip(np.flatnonzero(bounds == 1), np.flatnonzero(bounds == -1)):
+        resampled[(grid >= times[start]) & (grid <= times[stop - 1])] = np.nan
     return grid, resampled
 
 
