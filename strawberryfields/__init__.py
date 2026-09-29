@@ -5,6 +5,12 @@ from strawberryfields.config import Config
 
 
 def create_app():
+    """Build the Flask application.
+
+    :return: App configured from :class:`strawberryfields.config.Config`, with
+        CORS and the search blueprint registered.
+    :rtype: flask.Flask
+    """
     app = Flask(__name__)
     app.config.from_object(Config)
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0

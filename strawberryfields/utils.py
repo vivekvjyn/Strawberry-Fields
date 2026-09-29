@@ -310,6 +310,9 @@ def best_match(query_profile, tracks, pitch_config):
     Each track's stored contour is turned into a pitch-class profile the first time
     it's seen and memoised, so across searches every song is profiled exactly once;
     the profile is compared against the query with :func:`transposed_subsequence_cost`.
+    Memoised profiles are stored as ``float16`` so the whole catalogue fits in a
+    512 MB instance, and :func:`subsequence_cost` upcasts one track at a time as it
+    compares.
 
     :param query_profile: Profile of the query, as returned by
         :func:`pitch_class_profile_from_audio`.
@@ -335,8 +338,6 @@ def best_match(query_profile, tracks, pitch_config):
                 continue
             track_profile = _profile_cache.get(track_id)
             if track_profile is None:
-                # float16: the memoised profiles for the whole catalogue must fit in a
-                # 512 MB instance; cdist upcasts one track at a time when comparing.
                 track_profile = to_pitch_class_profile(
                     contour, pitch_config["n_classes"], pitch_config["sigma_cents"]).astype(np.float16)
                 _profile_cache[track_id] = track_profile

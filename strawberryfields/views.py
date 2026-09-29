@@ -14,11 +14,26 @@ bp = Blueprint("search", __name__)
 
 @bp.route("/")
 def index():
+    """Render the search page.
+
+    :return: The upload form.
+    :rtype: str
+    """
     return render_template("index.html")
 
 
 @bp.route("/api/search", methods=["POST"])
 def search():
+    """Match an uploaded recording against the stored catalogue.
+
+    The posted audio is decoded, turned into a pitch-class profile and compared
+    against every stored contour; the metadata of the best match is printed as a
+    table. A request carrying no audio, audio that fails to decode, or audio
+    shorter than a second renders the results page with no track.
+
+    :return: The results page for the best-matching track, or with no track set.
+    :rtype: str
+    """
     if "audio" not in request.files:
         return render_template("results.html", track=None)
 
