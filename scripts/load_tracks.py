@@ -1,8 +1,8 @@
 """Replace the contents of the ``tracks`` table with the built pitch tracks.
 
-    python scripts/load_tracks.py --artifacts artifacts
+    python scripts/load_tracks.py
 
-Every ``<artifacts>/tracks/*.npz`` written by ``scripts/build_pitch_tracks.py`` becomes
+Every ``.cache/tracks/*.npz`` written by ``scripts/build_pitch_tracks.py`` becomes
 one row: the title, raga and tala it was built with, and the packed contour. The
 credentials come from ``.env`` in the project root, so the same file points the
 application and this loader at the same database.
@@ -36,6 +36,8 @@ from pitchtrack.console import (console, problems_table, progress, show,
 from pitchtrack.corpus import ERROR, Problem
 from pitchtrack.repository import Track, count_tracks, replace_all
 
+CACHE_DIR = ".cache"
+
 
 def read_track(artefact_path):
     """Read one built artefact back into a row of the ``tracks`` table.
@@ -64,17 +66,15 @@ def main(argv=None):
     """
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--artifacts", default="artifacts",
-                        help="directory the built pitch tracks were written to")
     parser.add_argument("--limit", type=int, default=None,
                         help="load only the first N recordings")
     args = parser.parse_args(argv)
 
-    artefacts = sorted(Path(args.artifacts).glob("tracks/*.npz"))
+    artefacts = sorted(Path(CACHE_DIR).glob("tracks/*.npz"))
     if args.limit is not None:
         artefacts = artefacts[:args.limit]
     if not artefacts:
-        console.print(f"[red]no built pitch tracks under {args.artifacts}[/red]")
+        console.print(f"[red]no built pitch tracks under {CACHE_DIR}[/red]")
         return 1
 
     started = time.perf_counter()
@@ -94,7 +94,7 @@ def main(argv=None):
         show(problems_table(problems,
                             title=f"{len(problems)} artefacts could not be read"))
         console.print(f"[red]nothing was loaded[/red] — rebuild "
-                      f"{args.artifacts} with --force, the table was not touched")
+                      f"{CACHE_DIR} with --force, the table was not touched")
         return 1
 
     total_bytes = sum(len(track.pitch_track) for track in tracks)

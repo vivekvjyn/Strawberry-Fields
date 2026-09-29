@@ -1,6 +1,6 @@
 """Build the stored pitch track of every recording of a corpus.
 
-    python scripts/build_pitch_tracks.py your_data --artifacts artifacts
+    python scripts/build_pitch_tracks.py your_data
 
 The corpus is verified first, under a progress bar and with the findings printed as a
 table, and nothing is built when a song folder fails that check — a broken copy is
@@ -9,14 +9,14 @@ found in one run rather than one fault per run.
 Every recording then goes through the same four steps:
 
 1. :func:`pitchtrack.phrases.extract_pitch` tracks the predominant pitch out of the
-   audio, and caches it under ``<artifacts>/pitch`` so a re-run starts past the slow
+   audio, and caches it under ``.cache/pitch`` so a re-run starts past the slow
    part;
 2. :func:`pitchtrack.phrases.remove_repeated_phrases` finds the phrases the performer
    states more than once and cuts every statement after the first of each;
 3. :func:`pitchtrack.contour.contour_from_track` folds what is left onto the storage
    grid, in cents relative to the application's reference frequency;
 4. :func:`pitchtrack.codec.encode_contour` packs the contour, and it is written with
-   the recording's metadata to ``<artifacts>/tracks/<identifier>.npz``.
+   the recording's metadata to ``.cache/tracks/<identifier>.npz``.
 
 A recording whose artefact already exists is skipped, so an interrupted sweep resumes
 where it stopped; ``--force`` rebuilds it from the audio instead.
@@ -44,27 +44,25 @@ from pitchtrack.corpus import ERROR, Problem, scan_recordings
 
 MIN_VOICED_FRACTION = 0.05
 
+CACHE_DIR = ".cache"
 
-def artefact_path(artifacts_root, identifier):
+
+def artefact_path(identifier):
     """Where the built artefact of a recording is written.
 
-    :param artifacts_root: Directory the build writes into.
-    :type artifacts_root: str or pathlib.Path
     :param identifier: The recording's corpus folder name.
     :type identifier: str
     :return: Path of the recording's ``.npz`` file.
     :rtype: pathlib.Path
     """
-    return Path(artifacts_root) / "tracks" / f"{identifier}.npz"
+    return Path(CACHE_DIR) / "tracks" / f"{identifier}.npz"
 
 
-def build_recording(recording, artifacts_root, force=False):
+def build_recording(recording, force=False):
     """Run the four steps over one recording and write its artefact.
 
     :param recording: The recording to build.
     :type recording: pitchtrack.corpus.Recording
-    :param artifacts_root: Directory the artefacts and the pitch cache live in.
-    :type artifacts_root: str or pathlib.Path
     :param force: Rebuild an artefact that already exists instead of skipping it.
     :type force: bool
     :return: What the build measured, for the sweep's summary.
@@ -72,13 +70,12 @@ def build_recording(recording, artifacts_root, force=False):
     :raises ValueError: if too little of the recording carries a pitch at all.
     """
     started = time.perf_counter()
-    target = artefact_path(artifacts_root, recording.identifier)
+    target = artefact_path(recording.identifier)
     if target.exists() and not force:
         return {"identifier": recording.identifier, "outcome": "skipped", "seconds": 0.0}
 
-    artifacts_root = Path(artifacts_root)
     times, f0 = phrases.extract_pitch(recording.audio_path, recording.identifier,
-                                      artifacts_root / "pitch")
+                                      Path(CACHE_DIR) / "pitch")
     voiced = phrases.voiced_fraction(f0)
     if voiced < MIN_VOICED_FRACTION:
         raise ValueError(f"only {voiced:.1%} of the pitch frames carry a pitch")
@@ -155,8 +152,6 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("data", help="corpus folder: one subdirectory per song, "
                                      "each holding audio.mp3 and metadata.json")
-    parser.add_argument("--artifacts", default="artifacts",
-                        help="directory to write the built pitch tracks into")
     parser.add_argument("--jobs", type=int, default=1,
                         help="recordings to build at once")
     parser.add_argument("--limit", type=int, default=None,
@@ -181,13 +176,12 @@ def main(argv=None):
         task = bar.add_task("building", total=len(recordings))
         if args.jobs <= 1:
             for recording in recordings:
-                results.append(_build_safely(recording, args.artifacts, args.force))
+                results.append(_build_safely(recording, args.force))
                 bar.advance(task)
         else:
             with ProcessPoolExecutor(max_workers=args.jobs) as pool:
-                futures = {pool.submit(build_recording, recording, args.artifacts,
-                                       args.force): recording
-                           for recording in recordings}
+                futures = {pool.submit(build_recording, recording, args.force):
+                           recording for recording in recordings}
                 for future in as_completed(futures):
                     recording = futures[future]
                     try:
@@ -201,20 +195,18 @@ def main(argv=None):
     return 1 if _report(results) else 0
 
 
-def _build_safely(recording, artifacts_root, force):
+def _build_safely(recording, force):
     """Build one recording, turning a failure into a result the summary can print.
 
     :param recording: The recording to build.
     :type recording: pitchtrack.corpus.Recording
-    :param artifacts_root: Directory the artefacts and the pitch cache live in.
-    :type artifacts_root: str or pathlib.Path
     :param force: Rebuild an artefact that already exists instead of skipping it.
     :type force: bool
     :return: What the build measured, or why it could not.
     :rtype: dict
     """
     try:
-        return build_recording(recording, artifacts_root, force)
+        return build_recording(recording, force)
     except Exception as error:
         return {"identifier": recording.identifier, "outcome": "failed",
                 "error": f"{type(error).__name__}: {error}"}

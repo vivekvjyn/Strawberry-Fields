@@ -5,9 +5,9 @@ own:
 
 1. ``scripts/verify_data.py`` checks a corpus folder's layout and metadata, and lists
    everything wrong with it at once;
-2. ``scripts/build_pitch_tracks.py`` reads the Saraga corpus, tracks the pitch of every
+2. ``scripts/build_pitch_tracks.py`` reads a corpus folder, tracks the pitch of every
    recording, cuts the phrases the performance states more than once, and packs what
-   is left into :mod:`pitchtrack.codec` blobs under ``artifacts/``, after that same
+   is left into :mod:`pitchtrack.codec` blobs under ``.cache/``, after that same
    check has passed;
 3. ``scripts/migrate.py`` applies ``db/migrations/`` to the database;
 4. ``scripts/load_tracks.py`` replaces the contents of the ``tracks`` table with the

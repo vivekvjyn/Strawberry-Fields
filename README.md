@@ -23,7 +23,7 @@ flowchart TD
     Validate{"format validation"}
     Stop([stop])
     Extract["pYIN"]
-    Dedupe["Phrase deduplication"]
+    Dedupe["Self similarity score"]
     Quantise["Quantisation"]
     Compress["Compression"]
     Database[("database")]
@@ -31,10 +31,10 @@ flowchart TD
     Data --> Validate
     Validate -->|errors| Stop
     Validate -->|valid| Extract
-    Extract --> Dedupe
-    Dedupe --> Quantise
-    Quantise --> Compress
-    Compress --> Database
+    Extract --> |Pitch track signal| Dedupe
+    Dedupe --> |Phrase deduplicated signal| Quantise
+    Quantise --> |Quantized signal| Compress
+    Compress --> |Compressed signal| Database
 ```
 
 ## Setup
@@ -58,15 +58,10 @@ your_data/
     ├── audio.mp3
     └── metadata.json
 ```
-
+**Metadata format**
 ```json
 {"title": "Song 1", "raga": "Raga 1", "tala": "Tala 1"}
 ```
-
-`title`, `raga` and `tala` are strings: one raga and one tala to a song. The folder's
-name identifies the song, because titles are not unique. Saraga's export spells those
-two fields `raaga` and `taala` and wraps each in a list of one, and both spellings and
-a list of one are read as that one name.
 
 Credentials go in `.env`:
 
@@ -87,13 +82,6 @@ python scripts/migrate.py
 python scripts/build_pitch_tracks.py your_data
 python scripts/load_tracks.py
 ```
-
-`verify_data.py` checks every song folder of the corpus and prints every problem it
-finds, not just the first one. An error, printed in red, stops a build; a warning,
-printed in yellow, is worth a look but does not. `build_pitch_tracks.py` runs the same
-check before it starts, so a broken copy is found in one run rather than one fault per
-run. All four commands report through Rich: progress bars, a table of problems, and a
-table of measurements.
 
 ## Licence
 
