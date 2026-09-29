@@ -1,19 +1,14 @@
-# Strawberry Fields database
+# Strawberry Fieldsdatabase
 
-Pitch tracks and metadata for Strawberry Fields, built from any folder of recordings
-laid out as described below. Every recording is tracked, stripped of the phrases its
-performer states more than once, and packed into one row of a PostgreSQL table. Each
-row holds:
+Scripts for setting up the [Strawberry Fields](https://github.com/vivekvjyn/Strawberry-Fields)
+database:
 
 | Column | Type |
 |---|---|
 | `title` | text |
 | `raga` | text |
 | `tala` | text |
-| `pitch_track` | bytea, contour in cents on a 0.2 s grid at 0.87 bytes a frame |
-
-The packed format is documented in [`pitchtrack/codec.py`](pitchtrack/codec.py), and
-the pipeline in [`pitchtrack/__init__.py`](pitchtrack/__init__.py).
+| `pitch_track` | bytea |
 
 ## Pipeline
 
@@ -46,8 +41,8 @@ git switch database
 pip install -r requirements.txt
 ```
 
-The pipeline reads any folder of recordings; `your_data` is the folder you pass on the
-command line. One folder per recording, each holding `audio.mp3` and `metadata.json`:
+**Dataset format**: `your_data` is the folder you pass on the
+command line. Each recording is one folder holding `audio.mp3` and `metadata.json`:
 
 ```text
 your_data/
