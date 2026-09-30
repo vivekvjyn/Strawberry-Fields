@@ -8,4 +8,5 @@ strawberryfields/*.c
 *.so
 build/
 *.wav
+*.mp3
 *.ipynb_checkpoints

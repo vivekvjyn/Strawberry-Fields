@@ -98,18 +98,59 @@ def plot_f0(ax, times, f0, title=None, color=None, highlight=None, highlight_col
     :type xlim: tuple[float, float] or None
     :param kw: Extra keyword arguments passed to :meth:`matplotlib.axes.Axes.plot`.
     """
+    times = np.asarray(times, dtype=np.float64)
+    f0 = np.asarray(f0, dtype=np.float64)
+    f0 = np.where(f0 > 0, f0, np.nan)
+    f0 = _reject_octave_jumps(f0)
+
     if highlight is not None:
         ax.axvspan(*highlight, color=highlight_color, alpha=0.15, zorder=0, label="Matched region")
         ax.legend(loc="upper right")
     ax.plot(times, f0, "-", color=color, **kw)
     ax.set(xlabel="Time (s)", ylabel="Note", title=title)
     ax.set_yscale("log")
+    ax.margins(x=0)
 
-    times, f0 = np.asarray(times, dtype=np.float64), np.asarray(f0, dtype=np.float64)
     if xlim is not None:
         ax.set_xlim(*xlim)
         f0 = f0[(times >= xlim[0]) & (times <= xlim[1])]
     _label_notes(ax, f0)
+
+
+def _reject_octave_jumps(f0, window=5, threshold=7.0):
+    """Replace isolated octave errors with the median of the frames around them.
+
+    A pitch tracker occasionally reports one or two frames an octave out. Left alone
+    each one draws a spike to the top or bottom of the plot and stretches the y axis to
+    fit notes nobody sang. A frame whose distance from the local median is more than
+    ``threshold`` semitones — near an octave, or a fifth — is treated as such an error
+    and replaced by that median. Genuine melodic motion survives, because a real leap
+    lasts more than one frame and so is not outvoted by the frames around it.
+
+    :param f0: Pitch in Hz, `numpy.nan` where unvoiced.
+    :type f0: numpy.ndarray
+    :param window: Odd number of frames the median is taken over.
+    :type window: int
+    :param threshold: Semitone distance from the local median above which a frame is
+        treated as an error.
+    :type threshold: float
+    :return: The track with isolated octave errors replaced.
+    :rtype: numpy.ndarray
+    """
+    from scipy.ndimage import median_filter
+
+    voiced = np.isfinite(f0)
+    if voiced.sum() < window:
+        return f0
+    filled = np.where(voiced, f0, np.nan)
+    indices = np.arange(len(filled))
+    filled = np.interp(indices, indices[voiced], f0[voiced])
+    semitones = 12 * np.log2(filled / 440.0)
+    local = median_filter(semitones, size=window, mode="nearest")
+    corrected = np.where(np.abs(semitones - local) > threshold, local, semitones)
+    out = np.full(f0.shape, np.nan)
+    out[voiced] = 440.0 * 2 ** (corrected[voiced] / 12)
+    return out
 
 
 def _label_notes(ax, f0):
@@ -306,7 +347,8 @@ def plot_cost_distributions(axes, costs_by_name, true_cols, genuine_color, impos
     Each distribution is drawn as a density histogram with a Gaussian kernel density
     estimate overlaid.
 
-    :param axes: One axes per entry in ``costs_by_name``.
+    :param axes: One axes per entry in ``costs_by_name``, in any arrangement ``plt.subplots``
+        returns — a flat sequence or a grid.
     :type axes: collections.abc.Sequence[matplotlib.axes.Axes]
     :param costs_by_name: Representation name to its full query-by-candidate cost matrix.
     :type costs_by_name: dict[str, numpy.ndarray]
@@ -323,7 +365,7 @@ def plot_cost_distributions(axes, costs_by_name, true_cols, genuine_color, impos
     from scipy.stats import gaussian_kde, mannwhitneyu
 
     auc = {}
-    for ax, (name, costs) in zip(np.atleast_1d(axes), costs_by_name.items()):
+    for ax, (name, costs) in zip(np.atleast_1d(axes).flatten(), costs_by_name.items()):
         genuine = costs[np.arange(len(costs)), true_cols]
         mask = np.ones_like(costs, dtype=bool)
         mask[np.arange(len(costs)), true_cols] = False
@@ -496,7 +538,7 @@ def _crop_to_pitch(axes, times, f0, spans, tonic=None, pad_seconds=1.5):
     axis running to the highest note in the context would bunch every label into one
     corner.
     """
-    f0 = np.asarray(f0, dtype=np.float64)
+    f0 = _reject_octave_jumps(np.asarray(f0, dtype=np.float64))
     seen = np.concatenate([f0[(times >= s - pad_seconds) & (times <= e + pad_seconds)]
                            for s, e in spans]) if len(spans) else np.zeros(0)
     seen = seen[np.isfinite(seen) & (seen > 0)]
@@ -684,27 +726,8 @@ def plot_deduplicated_track(ax, times, f0, duplicates, *, kept=None, title=None,
     if xlim is not None:
         ax.set_xlim(*xlim)
     _label_notes(ax, pitch)
+    ax.margins(x=0)
 
 
-def plot_discard_overview(ax, summary, *, top=20, title=None, color=None):
-    """Plot the fraction of each song discarded as a repeat, worst first.
 
-    :param ax: Axes to draw on.
-    :type ax: matplotlib.axes.Axes
-    :param summary: Corpus summary from :func:`phrases.summary_table`.
-    :type summary: pandas.DataFrame
-    :param top: How many songs to show.
-    :type top: int
-    :param title: Axes title.
-    :type title: str or None
-    :param color: Bar color; ``None`` uses the axes' current color cycle.
-    :type color: str or None
-    """
-    top_rows = summary.head(top).iloc[::-1]
-    labels = [f"{r.title} — {r.raga}" for r in top_rows.itertuples()]
-    ax.barh(np.arange(len(top_rows)), top_rows.discarded_fraction, color=color)
-    ax.set(yticks=np.arange(len(top_rows)), yticklabels=labels,
-           xlabel="Fraction of the song discarded",
-           title=title or f"Most repeated {top} songs")
-    ax.tick_params(axis="y", labelsize=8)
 
