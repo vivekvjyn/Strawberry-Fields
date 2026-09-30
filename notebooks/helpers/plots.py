@@ -168,7 +168,7 @@ def _note_labels(ax, semitones, name):
 
 
 def plot_pitch_class_profile(ax, profile, eval_cfg, title=None):
-    """Plot a pitch-class salience profile, as built by :func:`utils.to_pitch_class_profile`.
+    """Plot a pitch-class salience profile, as built by :func:`utils.pitch_class_profile`.
 
     The y axis covers one octave (0-1200 cents), labelled with note names relative
     to class 0 as C; unlike an absolute-cents salience image it never needs cropping,
@@ -176,7 +176,7 @@ def plot_pitch_class_profile(ax, profile, eval_cfg, title=None):
 
     :param ax: Axes to draw on.
     :type ax: matplotlib.axes.Axes
-    :param profile: Profile as returned by :func:`utils.to_pitch_class_profile`.
+    :param profile: Profile as returned by :func:`utils.pitch_class_profile`.
     :type profile: numpy.ndarray
     :param eval_cfg: Settings with the keys ``hop_seconds`` and ``n_classes``.
     :type eval_cfg: dict

@@ -152,7 +152,7 @@ def downsampled_cents(pitch_track, eval_cfg, pitch_cfg):
     return downsample(hz_to_cents(f0, eval_cfg["f_ref"]), factor)
 
 
-def to_pitch_class_profile(contour, n_classes, sigma_cents=0.0):
+def pitch_class_profile(contour, n_classes, sigma_cents=0.0):
     """Fold a cents contour into an octave-invariant pitch-class salience profile.
 
     Every pitch is reduced mod 1200 cents (its position within an octave,
@@ -161,7 +161,7 @@ def to_pitch_class_profile(contour, n_classes, sigma_cents=0.0):
     pitch-class axis with a Gaussian that wraps around the octave (0 and 1200 cents
     are the same point). Because pitch class is transposition- and octave-invariant
     by construction, matching against 24 shifts of this profile (see
-    :func:`transposed_subsequence_cost`) covers every possible tonic difference
+    :func:`dtw_cost`) covers every possible tonic difference
     with a single un-windowed subsequence DTW per shift -- no re-centring or tempo
     resampling needed, since ordinary DTW already warps through tempo differences.
 
@@ -188,26 +188,46 @@ def to_pitch_class_profile(contour, n_classes, sigma_cents=0.0):
     return image
 
 
-def subsequence_cost(query, reference, metric="euclidean"):
-    """Compute the subsequence-DTW cost of matching a query inside a reference.
+def dtw_cost(query_profile, reference_profile, n_classes, metric="euclidean", shift_step=1):
+    """Match a query pitch-class profile inside a reference, over several transpositions.
 
-    :param query: Query representation, shape ``(features, frames)``.
-    :type query: numpy.ndarray
-    :param reference: Reference representation, shape ``(features, frames)``.
-    :type reference: numpy.ndarray
+    Circularly shifting a pitch-class profile by one class is exactly a transposition
+    by ``1200 / n_classes`` cents. ``shift_step`` trades transposition coverage for
+    speed: with ``shift_step=1`` every class shift is tried; with ``shift_step=2`` only
+    every other one is (semitone steps, if ``n_classes=24``), relying on the profile's
+    Gaussian blur to absorb the skipped in-between shifts. Each shift tried is one
+    ordinary, un-windowed subsequence DTW over the whole reference: the last row of the
+    accumulated cost matrix is the matching function, normalised by the shorter of the
+    two lengths.
+
+    :param query_profile: Query profile, as returned by :func:`pitch_class_profile`.
+    :type query_profile: numpy.ndarray
+    :param reference_profile: Reference profile, as returned by :func:`pitch_class_profile`.
+    :type reference_profile: numpy.ndarray
+    :param n_classes: Number of pitch classes per octave; must match how both
+        profiles were built.
+    :type n_classes: int
     :param metric: Distance metric passed to :func:`librosa.sequence.dtw`.
     :type metric: str
-    :return: DTW cost normalised by the shorter of the two lengths.
+    :param shift_step: Try every ``shift_step``-th class shift instead of all of them.
+    :type shift_step: int
+    :return: The lowest subsequence-DTW cost over the transpositions tried.
     :rtype: float
     """
-    D = librosa.sequence.dtw(X=query, Y=reference, metric=metric, subseq=True, backtrack=False)
-    return D[-1, :].min() / min(query.shape[1], reference.shape[1])
+    best = np.inf
+    for shift in range(0, n_classes, shift_step):
+        shifted = np.roll(reference_profile, shift, axis=0)
+        D = librosa.sequence.dtw(X=query_profile, Y=shifted, metric=metric, subseq=True, backtrack=False)
+        cost = D[-1, :].min() / min(query_profile.shape[1], reference_profile.shape[1])
+        if cost < best:
+            best = cost
+    return best
 
 
 def subsequence_match(query, reference, metric="euclidean"):
     """Find where a query best matches within a reference via subsequence DTW.
 
-    Unlike :func:`subsequence_cost`, this backtracks the optimal warping path to
+    Unlike :func:`dtw_cost`, this backtracks the optimal warping path to
     locate the matched region, so it's meant for inspecting a single query/reference
     pair rather than for the ranking loop.
 
@@ -225,57 +245,22 @@ def subsequence_match(query, reference, metric="euclidean"):
     return int(ref_idx.min()), int(ref_idx.max())
 
 
-def transposed_subsequence_cost(query_profile, reference_profile, n_classes, metric="euclidean", shift_step=1):
-    """Match a query pitch-class profile inside a reference, trying several transpositions.
-
-    Circularly shifting a pitch-class profile by one class is exactly a transposition
-    by ``1200 / n_classes`` cents, so trying ``n_classes`` shifts covers every
-    possible tonic difference at the profile's own resolution. ``shift_step`` searches
-    coarser: e.g. with 24 classes (50 cents each), ``shift_step=2`` tries every other
-    shift -- semitone (100-cent) transpositions -- for half the cost, relying on the
-    profile's Gaussian blur to absorb the skipped in-between shifts. Each shift tried
-    is one ordinary, un-windowed subsequence DTW over the whole reference -- the
-    profile's octave/transposition invariance means no per-window re-centring is needed.
-
-    :param query_profile: Query profile, as returned by :func:`to_pitch_class_profile`.
-    :type query_profile: numpy.ndarray
-    :param reference_profile: Reference profile, as returned by
-        :func:`to_pitch_class_profile`.
-    :type reference_profile: numpy.ndarray
-    :param n_classes: Number of pitch classes per octave; must match how both
-        profiles were built.
-    :type n_classes: int
-    :param metric: Distance metric passed to :func:`subsequence_cost`.
-    :type metric: str
-    :param shift_step: Try every ``shift_step``-th class shift instead of all of them.
-    :type shift_step: int
-    :return: The lowest subsequence-DTW cost over the transpositions tried.
-    :rtype: float
-    """
-    best = np.inf
-    for shift in range(0, n_classes, shift_step):
-        cost = subsequence_cost(query_profile, np.roll(reference_profile, shift, axis=0), metric)
-        if cost < best:
-            best = cost
-    return best
-
-
 def transposed_subsequence_match(query_profile, reference_profile, n_classes, metric="euclidean", shift_step=1):
     """Locate where a query pitch-class profile best matches within a reference.
 
-    Same search as :func:`transposed_subsequence_cost`, but the best transposition's
+    Same search as :func:`dtw_cost`, but the best transposition's
     warping path is also backtracked to find the matched frames, for inspecting one
     query/reference pair.
 
-    :param query_profile: Query profile, as returned by :func:`to_pitch_class_profile`.
+    :param query_profile: Query profile, as returned by :func:`pitch_class_profile`.
     :type query_profile: numpy.ndarray
     :param reference_profile: Reference profile, as returned by
-        :func:`to_pitch_class_profile`.
+        :func:`pitch_class_profile`.
     :type reference_profile: numpy.ndarray
     :param n_classes: Number of pitch classes per octave; must match how both
         profiles were built.
     :type n_classes: int
-    :param metric: Distance metric passed to :func:`subsequence_cost`.
+    :param metric: Distance metric passed to :func:`librosa.sequence.dtw`.
     :type metric: str
     :param shift_step: Try every ``shift_step``-th class shift instead of all of them.
     :type shift_step: int
@@ -285,14 +270,15 @@ def transposed_subsequence_match(query_profile, reference_profile, n_classes, me
     best_cost, best_shifted = np.inf, None
     for shift in range(0, n_classes, shift_step):
         shifted = np.roll(reference_profile, shift, axis=0)
-        cost = subsequence_cost(query_profile, shifted, metric)
+        D = librosa.sequence.dtw(X=query_profile, Y=shifted, metric=metric, subseq=True, backtrack=False)
+        cost = D[-1, :].min() / min(query_profile.shape[1], reference_profile.shape[1])
         if cost < best_cost:
             best_cost, best_shifted = cost, shifted
     lo, hi = subsequence_match(query_profile, best_shifted, metric)
     return best_cost, lo, hi
 
 
-def rank_queries(query_reprs, ref_reprs, true_ids, metric="euclidean", desc="matching", cost=None,
+def rank_queries(query_reprs, ref_reprs, true_ids, cost, desc="matching",
                  query_ids=None, cache_path=None, n_jobs=1):
     """Match every query against every reference and rank the true song's cost.
 
@@ -303,14 +289,10 @@ def rank_queries(query_reprs, ref_reprs, true_ids, metric="euclidean", desc="mat
     :type ref_reprs: dict[int, numpy.ndarray]
     :param true_ids: The correct song id for each entry in ``query_reprs``.
     :type true_ids: collections.abc.Sequence[int]
-    :param metric: Distance metric passed to :func:`subsequence_cost`; ignored when
-        ``cost`` is given.
-    :type metric: str
+    :param cost: Scores one query against one reference.
+    :type cost: collections.abc.Callable[[numpy.ndarray, numpy.ndarray], float]
     :param desc: Label shown on the progress bar.
     :type desc: str
-    :param cost: Scores one query against one reference; defaults to
-        :func:`subsequence_cost` with ``metric``.
-    :type cost: collections.abc.Callable[[numpy.ndarray, numpy.ndarray], float] or None
     :param query_ids: A stable id per entry of ``query_reprs``, used as the cache key
         alongside each song id; defaults to its position. Needed for resuming to work
         if ``query_reprs`` might be reordered or subsampled between runs.
@@ -328,8 +310,6 @@ def rank_queries(query_reprs, ref_reprs, true_ids, metric="euclidean", desc="mat
         full cost matrix, and the song ids in the order used for its columns.
     :rtype: tuple[numpy.ndarray, numpy.ndarray, list[int]]
     """
-    if cost is None:
-        cost = lambda q, r: subsequence_cost(q, r, metric)
     song_ids = list(ref_reprs)
     if query_ids is None:
         query_ids = list(range(len(query_reprs)))
