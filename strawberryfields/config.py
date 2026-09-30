@@ -54,8 +54,9 @@ class Config:
     ``SECRET_KEY`` and ``DATABASE_URL`` come from the environment, and
     ``MAX_CONTENT_LENGTH`` caps uploads at 25 MB. ``PITCH`` holds the analysis
     and matching settings, read from the ``app`` group of ``config.yaml``:
-    ``analysis_hop_seconds`` is the pYIN hop on the query
-    audio, ``hop_seconds`` the grid the contour is resampled to, ``n_classes``
+    ``hop_seconds`` is both the pYIN hop on the query audio and the grid the stored
+    contours sit on, so the tracker hands the query back straight on that grid,
+    ``n_classes``
     the pitch classes per octave (50 cents each), and ``shift_step`` the class
     shifts tried when matching (2 means every second class, i.e. 12
     transpositions).

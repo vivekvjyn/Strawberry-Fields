@@ -52,13 +52,11 @@ def search():
         return render_template("results.html", track=None)
 
     pitch_config = current_app.config["PITCH"]
-    times, f0 = utils.extract_f0(
+    f0 = utils.extract_f0(
         y, sr, pitch_config["fmin"], pitch_config["fmax"], pitch_config["frame_length"],
-        hop_length=round(pitch_config["analysis_hop_seconds"] * sr),
+        hop_length=round(pitch_config["hop_seconds"] * sr),
     )
     cents = utils.hz_to_cents(f0, pitch_config["ref_hz"])
-    _, cents = utils.resample_uniform(
-        times, cents, pitch_config["hop_seconds"], duration=len(y) / sr)
     query_profile = utils.pitch_class_profile(
         cents, pitch_config["n_classes"], pitch_config["sigma_cents"])
 

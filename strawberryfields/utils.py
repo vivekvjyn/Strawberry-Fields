@@ -74,15 +74,14 @@ def extract_f0(y, sr, fmin, fmax, frame_length, hop_length):
     :type frame_length: int
     :param hop_length: Number of samples between consecutive frames.
     :type hop_length: int
-    :return: Frame times in seconds and the f0 value of each frame in Hz, ``nan`` where unvoiced.
-    :rtype: tuple[numpy.ndarray, numpy.ndarray]
+    :return: The f0 value of each frame in Hz, ``nan`` where unvoiced.
+    :rtype: numpy.ndarray
     """
     f0, _, _ = pyin(
         y, fmin=fmin, fmax=fmax, sr=sr,
         frame_length=frame_length, hop_length=hop_length,
     )
-    times = np.arange(len(f0)) * hop_length / sr
-    return times, f0
+    return f0
 
 
 def hz_to_cents(f0, f_ref):
@@ -102,43 +101,6 @@ def hz_to_cents(f0, f_ref):
     voiced = f0 > 0
     cents[voiced] = 1200.0 * np.log2(f0[voiced] / f_ref)
     return cents
-
-
-def resample_uniform(times, values, hop_seconds, duration=None):
-    """Linearly resample a series onto a uniform time grid, ignoring ``nan`` samples.
-
-    Grid points outside the range of valid samples are ``nan``, and so are grid
-    points that fall inside a run of ``nan`` samples: silence is carried through,
-    never interpolated over.
-
-    :param times: Sample times in seconds.
-    :type times: numpy.ndarray
-    :param values: Sample values, ``nan`` where undefined.
-    :type values: numpy.ndarray
-    :param hop_seconds: Spacing of the output grid in seconds.
-    :type hop_seconds: float
-    :param duration: Length of the grid in seconds; defaults to the last time in ``times``.
-    :type duration: float or None
-    :return: The grid times and the resampled values.
-    :rtype: tuple[numpy.ndarray, numpy.ndarray]
-    """
-    times = np.asarray(times, dtype=np.float64)
-    values = np.asarray(values, dtype=np.float64)
-    if duration is None:
-        duration = float(times[-1]) if len(times) else 0.0
-    grid = np.arange(0.0, max(duration, hop_seconds), hop_seconds)
-
-    valid = ~np.isnan(values)
-    if valid.sum() < 2:
-        return grid, np.full_like(grid, np.nan)
-
-    resampled = np.interp(grid, times[valid], values[valid], left=np.nan, right=np.nan)
-
-    invalid = (~valid).astype(np.int8)
-    bounds = np.diff(np.concatenate(([0], invalid, [0])))
-    for start, stop in zip(np.flatnonzero(bounds == 1), np.flatnonzero(bounds == -1)):
-        resampled[(grid >= times[start]) & (grid <= times[stop - 1])] = np.nan
-    return grid, resampled
 
 
 def pitch_class_profile(contour, n_classes, sigma_cents=0.0):
