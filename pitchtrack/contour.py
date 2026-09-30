@@ -11,12 +11,12 @@ Three properties make the stored contour directly usable by the application:
   pitch-class profile is a modulo-1200 operation on cents;
 * **a reference frequency that matches the application's.** The application converts a
   hummed query with the same reference, so both sides of a search are on one scale;
-* **``nan`` for the unvoiced frames.** :func:`strawberryfields.utils.to_pitch_class_profile`
+* **``nan`` for the unvoiced frames.** :func:`strawberryfields.utils.pitch_class_profile`
   renders those frames as all-zero columns, which is how a silence says *nothing was
   sung here* rather than naming a note.
 
-The grid's spacing is :data:`HOP_SECONDS`, the same value the application resamples a
-query to, so a stored contour and a query contour are built the same way.
+The grid's spacing is :data:`HOP_SECONDS`, the hop the application extracts a
+query at, so a stored contour and a query contour are built the same way.
 """
 
 import warnings
