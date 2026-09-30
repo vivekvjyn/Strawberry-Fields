@@ -35,7 +35,7 @@ __all__ = [
 
 REFERENCE_HZ = 55.0
 
-HOP_SECONDS = 0.2
+HOP_SECONDS = 0.1
 
 
 def hz_to_cents(frequencies_hz, reference_hz=REFERENCE_HZ):
