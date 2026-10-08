@@ -4,8 +4,10 @@
 
 {% block content %}
 <ul id="results">
-  {% if track %}
+  {% if tracks %}
+  {% for track in tracks %}
   <li>
+    <div class="rank">{{ track.rank }}</div>
     <div class="title">{{ track.title }}</div>
     <div class="meta">
       {% if track.raga %}<div>Raga: {{ track.raga }}</div>{% endif %}
@@ -13,6 +15,7 @@
       {% if track.form %}<div>Form: {{ track.form }}</div>{% endif %}
     </div>
   </li>
+  {% endfor %}
   {% else %}
   <p id="status">No match found</p>
   {% endif %}

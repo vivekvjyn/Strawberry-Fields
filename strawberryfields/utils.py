@@ -6,13 +6,12 @@ from scipy.ndimage import gaussian_filter1d
 
 from strawberryfields import codec
 from strawberryfields.dtw import dtw
-from strawberryfields.pyin import pyin
 
 
 _profile_cache = {}
 
 
-def get_track_contours(database_url):
+def get_tracks(database_url):
     """Yield every track's stored pitch contour, one row at a time.
 
     The table is never pulled down whole: each row is fetched on its own, unpacked
@@ -55,33 +54,6 @@ def load_audio(path):
     """
     y, sr = librosa.load(path, sr=None, mono=True)
     return y.astype(np.float64), sr
-
-
-def extract_f0(y, sr, fmin, fmax, frame_length, hop_length):
-    """Estimate the fundamental frequency of a waveform with pYIN.
-
-    Unvoiced frames are ``nan``.
-
-    :param y: Mono waveform.
-    :type y: numpy.ndarray
-    :param sr: Sampling rate of ``y`` in Hz.
-    :type sr: int
-    :param fmin: Lowest frequency to search for, in Hz.
-    :type fmin: float
-    :param fmax: Highest frequency to search for, in Hz.
-    :type fmax: float
-    :param frame_length: Analysis window length in samples.
-    :type frame_length: int
-    :param hop_length: Number of samples between consecutive frames.
-    :type hop_length: int
-    :return: The f0 value of each frame in Hz, ``nan`` where unvoiced.
-    :rtype: numpy.ndarray
-    """
-    f0, _, _ = pyin(
-        y, fmin=fmin, fmax=fmax, sr=sr,
-        frame_length=frame_length, hop_length=hop_length,
-    )
-    return f0
 
 
 def hz_to_cents(f0, f_ref):
@@ -174,8 +146,8 @@ def dtw_cost(query_profile, reference_profile, n_classes, metric="euclidean", sh
     return best
 
 
-def best_match(query_profile, tracks, pitch_config):
-    """Find the track whose pitch-class profile contains the best subsequence match.
+def top_matches(query_profile, tracks, pitch_config, k=3):
+    """Find the tracks whose pitch-class profiles contain the best subsequence matches.
 
     Each track's stored contour is turned into a pitch-class profile the first time
     it's seen and memoised, so across searches every song is profiled exactly once;
@@ -188,16 +160,17 @@ def best_match(query_profile, tracks, pitch_config):
         :func:`pitch_class_profile`.
     :type query_profile: numpy.ndarray
     :param tracks: Track ids paired with their pitch contours in cents, fetched one
-        row at a time by :func:`get_track_contours`.
+        row at a time by :func:`get_tracks`.
     :type tracks: collections.abc.Iterator[tuple[int, numpy.ndarray]]
     :param pitch_config: Settings with the keys ``n_classes``, ``sigma_cents`` and
         ``shift_step``.
     :type pitch_config: dict
-    :return: The id of the best-matching track (``None`` if there are no tracks), and the
-        10 lowest-cost ``(track_id, cost)`` pairs, best first.
-    :rtype: tuple[int or None, list[tuple[int, float]]]
+    :param k: How many matches to return.
+    :type k: int
+    :return: The ``k`` lowest-cost ``(track_id, cost)`` pairs, cheapest first; every pair
+        when the catalogue holds fewer than ``k`` tracks.
+    :rtype: list[tuple[int, float]]
     """
-    best_id, best_cost = None, np.inf
     results = []
 
     with Progress() as progress:
@@ -214,8 +187,6 @@ def best_match(query_profile, tracks, pitch_config):
             cost = dtw_cost(query_profile, track_profile, pitch_config["n_classes"],
                             "euclidean", pitch_config["shift_step"])
             results.append((track_id, cost))
-            if cost < best_cost:
-                best_id, best_cost = track_id, cost
             progress.advance(task)
 
-    return best_id, sorted(results, key=lambda r: r[1])[:10]
+    return sorted(results, key=lambda r: r[1])[:k]

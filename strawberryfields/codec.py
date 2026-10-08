@@ -1,84 +1,9 @@
-"""Reading the packed pitch track the database stores.
-
-The ``pitch_track`` column holds a contour as a self-describing blob instead of an
-array of numbers: eight bytes a frame would dominate the database, so the contour is
-packed before it is stored and taken apart again on the way out. This module does the
-taking apart.
-
-A contour is a sequence of pitch values in cents on a uniform time grid, with ``nan``
-marking the frames that carry no pitch. The blob begins with a thirteen-byte header:
-
-.. list-table::
-   :header-rows: 1
-
-   * - Field
-     - Size
-     - Value
-   * - ``magic``
-     - 4 bytes
-     - ``b"SFPT"``, the format's tag
-   * - ``version``
-     - 1 byte
-     - ``2``; ``1`` is still readable, see :func:`decode_contour`
-   * - ``frames``
-     - 4 bytes
-     - unsigned count of pitch frames
-   * - ``hop_microseconds``
-     - 4 bytes
-     - unsigned spacing of the frames, in microseconds
-   * - ``payload``
-     - remainder
-     - deflate stream of the delta-coded samples: variable-length integers from
-       version 2, sixteen-bit words from version 1
-
-The payload is read back in the order the writer applied the algorithms:
-
-1. :func:`zlib.decompress` inflates the stream — the same call the writer packed it
-   with;
-2. protobuf's original wire format takes it apart — :func:`google.protobuf.internal.decoder._DecodeVarint`
-   reassembles the seven-bit groups and :func:`google.protobuf.internal.wire_format.ZigZagDecode`
-   takes the zigzag fold off, giving one difference per frame;
-3. the differences are summed modulo ``2**16``, which restores the whole cents;
-4. :func:`dequantise`, the helper in this module, turns whole cents into a contour.
-
-Nothing but the standard library, :mod:`numpy` and protobuf's own wire format is
-involved, so a contour packed by the writer and a contour read here describe exactly
-the same values.
-
-:func:`decode_contour` is what the application calls on every row of ``tracks``.
-
-"""
-
 import struct
 import zlib
 
 import numpy as np
 from google.protobuf.internal.decoder import _DecodeError, _DecodeVarint
 from google.protobuf.internal.wire_format import ZigZagDecode
-
-__all__ = [
-    "MAGIC",
-    "VERSION",
-    "SUPPORTED_VERSIONS",
-    "UNVOICED",
-    "HEADER",
-    "quantise",
-    "dequantise",
-    "decode_contour",
-]
-
-MAGIC = b"SFPT"
-
-VERSION = 2
-
-SUPPORTED_VERSIONS = (1, 2)
-
-UNVOICED = -32768
-
-HEADER = struct.Struct("<4sBII")
-
-_MODULUS = 1 << 16
-
 
 def quantise(contour):
     """Round a contour to whole cents, one ``int16`` per frame.
@@ -89,28 +14,28 @@ def quantise(contour):
 
     :param contour: Pitch contour in cents, ``nan`` where the frame is unvoiced.
     :type contour: numpy.ndarray
-    :return: One whole cent per frame, :data:`UNVOICED` where there was no pitch.
+    :return: One whole cent per frame, ``-32768`` where there was no pitch.
     :rtype: numpy.ndarray
     """
     values = np.ascontiguousarray(contour, dtype=np.float64).reshape(-1)
     unvoiced = ~np.isfinite(values)
     rounded = np.rint(np.where(unvoiced, 0.0, values))
-    rounded = np.clip(rounded, UNVOICED + 1, np.iinfo(np.int16).max)
-    rounded[unvoiced] = UNVOICED
+    rounded = np.clip(rounded, -32767, np.iinfo(np.int16).max)
+    rounded[unvoiced] = -32768
     return np.ascontiguousarray(rounded, dtype=np.int16)
 
 
 def dequantise(samples):
     """Read whole cents back into a contour, ``nan`` where there was no pitch.
 
-    :param samples: Whole cents, :data:`UNVOICED` where the frame was unvoiced.
+    :param samples: Whole cents, ``-32768`` where the frame was unvoiced.
     :type samples: numpy.ndarray
     :return: The contour in cents as floating point values.
     :rtype: numpy.ndarray
     """
     packed = np.ascontiguousarray(samples, dtype=np.int16).reshape(-1)
     values = packed.astype(np.float64)
-    values[packed == UNVOICED] = np.nan
+    values[packed == -32768] = np.nan
     return values
 
 
@@ -129,15 +54,16 @@ def decode_contour(blob):
     :raises ValueError: if the blob is not a packed pitch track, if its version is not
         one this module knows how to read, or if its payload does not inflate.
     """
-    magic, version, frames, hop_microseconds = HEADER.unpack_from(blob, 0)
-    if magic != MAGIC:
+    header = struct.Struct("<4sBII")
+    magic, version, frames, hop_microseconds = header.unpack_from(blob, 0)
+    if magic != b"SFPT":
         raise ValueError(f"not a packed pitch track: magic {magic!r}")
-    if version not in SUPPORTED_VERSIONS:
+    if version not in (1, 2):
         raise ValueError(f"packed pitch track version {version}, "
-                         f"expected one of {SUPPORTED_VERSIONS}")
+                         "expected one of (1, 2)")
 
     try:
-        payload = zlib.decompress(blob[HEADER.size:])
+        payload = zlib.decompress(blob[header.size:])
     except zlib.error as error:
         raise ValueError(f"packed pitch track payload does not inflate: {error}") from error
 
@@ -147,7 +73,7 @@ def decode_contour(blob):
         raise ValueError(f"packed pitch track holds {differences.size} frames, "
                          f"header says {frames}")
 
-    samples = np.cumsum(differences, dtype=np.uint64) % _MODULUS
+    samples = np.cumsum(differences, dtype=np.uint64) % 65536
     samples = samples.astype(np.uint16).view(np.int16)
     values = dequantise(samples)
     return values, hop_microseconds / 1e6
@@ -180,7 +106,7 @@ def _decode_varints(data, frames):
             raise ValueError(f"packed pitch track ends after {index} of {frames} frames") from None
         except _DecodeError:
             raise ValueError("packed pitch track holds an oversized integer") from None
-        differences[index] = ZigZagDecode(value) & (_MODULUS - 1)
+        differences[index] = ZigZagDecode(value) & 0xFFFF
 
     if position != len(data):
         raise ValueError(f"packed pitch track holds {len(data) - position} "

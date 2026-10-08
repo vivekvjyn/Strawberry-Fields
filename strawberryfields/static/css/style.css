@@ -163,6 +163,15 @@ main {
   color: var(--fg);
 }
 
+#results .rank {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.2rem;
+}
+
 #results .meta {
   font-size: 0.85rem;
   color: var(--muted);

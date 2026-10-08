@@ -6,7 +6,6 @@ import scipy.stats
 from libc.math cimport exp, fabs, INFINITY
 from numpy.lib.stride_tricks import as_strided
 
-TINY = np.finfo(np.float64).tiny
 
 
 cdef double boltzmann_pmf(Py_ssize_t k, double lambda_, Py_ssize_t n) noexcept:
@@ -269,7 +268,7 @@ def viterbi(prob, transition, *, p_init=None, return_logp=False, transition_min_
     if np.any(prob < 0) or np.any(prob > 1):
         raise ValueError("Invalid probability values: must be between 0 and 1.")
 
-    epsilon = TINY
+    epsilon = np.finfo(np.float64).tiny
 
     if p_init is None:
         p_init = np.empty(n_states)
