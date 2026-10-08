@@ -4,9 +4,9 @@ The application builds its connection string in ``strawberryfields/config.py``; 
 module answers the same questions by the same rules, so one ``.env`` describes the
 database for both of them:
 
-* ``DATABASE_URL`` when the platform hands back a whole connection string — Render
-  does — with ``DB_SSLMODE`` appended to it, ``require`` by default, because Render
-  only answers TLS connections;
+* ``DATABASE_URL`` when the host hands back a whole connection string, with
+  ``DB_SSLMODE`` appended to it, ``require`` by default, because a hosted database only
+  answers TLS connections;
 * otherwise ``DB_HOST``, ``DB_PORT``, ``DB_NAME``, ``DB_USER`` and ``DB_PASSWORD``.
 
 ``.env`` in the project root is read on import, so the scripts need no flags to pick

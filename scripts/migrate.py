@@ -9,8 +9,7 @@ in full or not at all.
 
 The login role and the database itself come from ``db/bootstrap/``, which ``setup.sh``
 runs through ``psql`` because creating a database needs a superuser and cannot be done
-inside a transaction. A hosted database such as Render's already has both, so this
-script never has to.
+inside a transaction. A hosted database already has both, so this script never has to.
 """
 
 import argparse

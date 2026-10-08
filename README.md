@@ -75,7 +75,6 @@ DB_NAME=your_database
 DB_USER=your_username
 DB_PASSWORD=your_password
 DB_PORT=your_port
-SECRET_KEY=your_secret_key
 ```
 
 ## Run
